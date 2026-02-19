@@ -1,23 +1,27 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useWallet } from "@/components/providers/WalletProvider";
-import { Lock } from "lucide-react";
+import { ArrowLeft, Lock } from "lucide-react";
 import { toast } from "sonner";
 import { WalletConnectPanel } from "@/components/auth/WalletConnectPanel";
 
 export default function AdminLoginPage() {
     const router = useRouter();
-    const searchParams = useSearchParams();
     const { user, token, isLoading, connect, disconnect, refreshUser } = useWallet();
     const [showDenied, setShowDenied] = useState(false);
+    const [isMounted, setIsMounted] = useState(false);
 
     const isAdmin = user?.role === "admin" || user?.role === "superadmin";
     const walletSnippet = user?.walletAddress
         ? `${user.walletAddress.slice(0, 6)}...${user.walletAddress.slice(-4)}`
         : null;
+
+    useEffect(() => {
+        setIsMounted(true);
+    }, []);
 
     useEffect(() => {
         if (token && !user) {
@@ -26,9 +30,11 @@ export default function AdminLoginPage() {
     }, [token, user, refreshUser]);
 
     useEffect(() => {
-        const reason = searchParams.get("reason");
+        if (!isMounted || typeof window === "undefined") return;
+        const params = new URLSearchParams(window.location.search);
+        const reason = params.get("reason");
         if (reason === "unauthorized") setShowDenied(true);
-    }, [searchParams]);
+    }, [isMounted]);
 
     useEffect(() => {
         if (isLoading) return;
@@ -68,6 +74,15 @@ export default function AdminLoginPage() {
 
             <div className="relative z-10 w-full max-w-5xl">
                 <div className="text-center mb-6 space-y-2">
+                    <div className="flex justify-center mb-4">
+                        <Link
+                            href="/"
+                            className="inline-flex items-center gap-2 text-xs font-black uppercase tracking-widest text-white/60 hover:text-white transition-colors"
+                        >
+                            <ArrowLeft className="h-4 w-4" />
+                            Back to Home
+                        </Link>
+                    </div>
                     <p className="text-[11px] uppercase tracking-[0.4em] text-white/30 font-black">
                         Admin Access
                     </p>
