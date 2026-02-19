@@ -1,8 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const system = require('../config/system');
-const { requireAdmin } = require('../middleware/auth');
-const { requireSuperAdmin } = require('../middleware/rbac'); // Assuming RBAC is separate or we use requireAdmin
+const auth = require('../middleware/auth');
+const { requireAdmin, requireSuperAdmin } = require('../middleware/rbac');
 const { logger } = require('../utils/logger');
 
 // Middleware to ensure admin access
@@ -12,8 +12,6 @@ const { logger } = require('../utils/logger');
 // However, looking at server.js: app.use('/api/admin', adminRoutes);
 // We will mount this NEW route likely as app.use('/api/admin/emergency', emergencyRoutes);
 // So we need to include auth middleware here.
-
-const auth = require('../middleware/auth');
 
 // GET /api/admin/emergency/status
 router.get('/status', auth, requireAdmin, async (req, res) => {
@@ -91,7 +89,7 @@ router.post('/pause-lucky-draw', auth, requireAdmin, (req, res) => {
 
 // POST /maintenance-mode
 // Usually requires SuperAdmin
-router.post('/maintenance-mode', auth, requireSuperAdmin || requireAdmin, (req, res) => {
+router.post('/maintenance-mode', auth, requireSuperAdmin, (req, res) => {
     handleToggle(req, res, 'maintenanceMode', 'Maintenance Mode');
 });
 
