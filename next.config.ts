@@ -1,6 +1,9 @@
 import type { NextConfig } from "next";
 
-const backendApiBase = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/api").replace(/\/+$/, "");
+// NEXT_PUBLIC_API_URL is the backend base (e.g. http://localhost:5000) WITHOUT /api.
+// lib/api.ts appends /api itself. For the Next.js rewrite proxy we must add /api here.
+const _apiBase = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000").replace(/\/+$/, "");
+const backendApiBase = _apiBase.endsWith("/api") ? _apiBase : `${_apiBase}/api`;
 
 const nextConfig: NextConfig = {
   images: {

@@ -20,11 +20,6 @@ export default function MaintenanceOverlay() {
     const [isAdmin, setIsAdmin] = useState(false);
     const [status, setStatus] = useState<SystemStatus | null>(null);
 
-    // Always allow access to admin routes
-    if (pathname?.startsWith('/admin')) {
-        return null;
-    }
-
     // Check initial status via API
     useEffect(() => {
         const checkStatus = async () => {
@@ -137,6 +132,11 @@ export default function MaintenanceOverlay() {
                 </div>
             </div>
         );
+    }
+
+    // Always allow access to admin routes (checked here after all hooks)
+    if (pathname?.startsWith('/admin')) {
+        return null;
     }
 
     return null;

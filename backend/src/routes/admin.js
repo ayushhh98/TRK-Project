@@ -520,7 +520,6 @@ router.get('/analytics/history', auth, requireAdmin, async (req, res) => {
         });
     }
 });
-
 // ============================================
 // SYSTEM MANAGEMENT
 // ============================================
