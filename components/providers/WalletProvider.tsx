@@ -29,11 +29,20 @@ interface GameHistoryItem {
     timestamp: string;
     gameType: 'dice' | 'crash' | 'spin' | 'mines' | 'plinko' | 'matrix' | 'guess';
     roundId?: string; // On-chain round ID for claiming
+    status?: string | null;
 }
 
 interface DepositItem {
     amount: number;
     txHash: string;
+    createdAt: string;
+}
+
+interface WithdrawalItem {
+    amount: number;
+    walletType: string;
+    txHash: string | null;
+    status: string;
     createdAt: string;
 }
 
@@ -138,6 +147,7 @@ interface User {
     clubRank: string;
     activation?: Activation;
     deposits?: DepositItem[];
+    withdrawals?: WithdrawalItem[];
     directReferrals?: number;
     isEmailVerified?: boolean;
     email?: string;
@@ -208,6 +218,7 @@ interface WalletContextType {
     faucet: () => Promise<any>;
     addresses: { USDT: string, GAME: string, LUCKY_DRAW: string };
     deposits: DepositItem[];
+    withdrawals: WithdrawalItem[];
     loadMoreHistory: () => Promise<void>;
     hasMoreHistory: boolean;
     isHistoryLoading: boolean;
@@ -1803,7 +1814,8 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
                     payout: g.payout,
                     timestamp: g.createdAt,
                     gameType: mapGameVariant(g.gameVariant),
-                    roundId: g.roundId
+                    roundId: g.roundId,
+                    status: g.status
                 }));
 
                 setGameHistory(prev => {
@@ -1864,12 +1876,19 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
             const revealResponse = await gameAPI.revealBet(commitmentId);
 
             if (revealResponse.status === 'success') {
-                const { isWin, payout, luckyNumber, id } = revealResponse.data.game;
+                const { isWin, payout, luckyNumber, id, status: gameStatus } = revealResponse.data.game;
                 const newBal = revealResponse.data.newBalance;
 
                 toast.dismiss(toastId);
-                if (isWin) toast.success(`PRACTICE WIN! +${payout} TRK [Result: ${luckyNumber}]`);
-                else toast.info(`Practice Round Lost. [Result: ${luckyNumber}]`);
+
+                if (gameStatus === 'pending') {
+                    toast.success("Entry Accepted - Pending Next Draw", {
+                        description: "Results will resolve at the top of the hour."
+                    });
+                } else {
+                    if (isWin) toast.success(`PRACTICE WIN! +${payout} TRK [Result: ${luckyNumber}]`);
+                    else toast.info(`Practice Round Lost. [Result: ${luckyNumber}]`);
+                }
 
                 // Update Balance immediately
                 setPracticeBalance(Number(newBal).toFixed(2));
@@ -1883,7 +1902,8 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
                     won: isWin,
                     payout,
                     timestamp: new Date().toISOString(),
-                    gameType
+                    gameType,
+                    status: gameStatus
                 };
 
                 setGameHistory((prev) =>
@@ -1891,7 +1911,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
                 );
                 refreshUser();
 
-                return { won: isWin, payout, hash: historyItem.hash || "practice-tx", luckyNumber };
+                return { won: isWin, payout, hash: historyItem.hash || "practice-tx", luckyNumber, status: gameStatus };
             } else {
                 throw new Error(revealResponse.message || "Entry reveal failed");
             }
@@ -2696,6 +2716,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
                 faucet,
                 addresses,
                 deposits: user?.deposits || [],
+                withdrawals: user?.withdrawals || [],
                 loadMoreHistory,
                 hasMoreHistory,
                 isHistoryLoading,

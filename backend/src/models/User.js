@@ -116,6 +116,14 @@ const userSchema = new mongoose.Schema({
         createdAt: { type: Date, default: Date.now }
     }],
 
+    withdrawals: [{
+        amount: { type: Number, required: true },
+        walletType: { type: String },
+        txHash: { type: String },
+        status: { type: String, default: 'confirmed' }, // confirmed, pending, etc.
+        createdAt: { type: Date, default: Date.now }
+    }],
+
     referralCode: { type: String, unique: true },
     referredBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
     referrals: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],

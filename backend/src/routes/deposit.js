@@ -434,6 +434,17 @@ router.post('/withdraw', auth, requireFreshAuth, withdrawalLimiter, checkWithdra
 
         // Process withdrawal
         user.realBalances[walletType] -= amount;
+
+        // Record the withdrawal
+        user.withdrawals = user.withdrawals || [];
+        user.withdrawals.push({
+            amount,
+            walletType,
+            txHash: null,
+            status: 'pending', // Usually pending until admin/contract processes it
+            createdAt: new Date()
+        });
+
         await user.save();
 
         // Notify User of balance change

@@ -42,7 +42,7 @@ router.post('/bet', auth, async (req, res) => {
 
         const user = await User.findById(req.user.id);
 
-        // Check balance
+        // Check balance & Handle Practice Bets (Pending 1-Hour Resolution)
         if (gameType === 'practice') {
             if (user.practiceBalance < betAmount) {
                 return res.status(400).json({
@@ -50,14 +50,49 @@ router.post('/bet', auth, async (req, res) => {
                     message: 'Insufficient practice balance'
                 });
             }
-        } else {
-            console.log(`[REAL BET] User: ${user.walletAddress}, Amount: ${betAmount}, Variant: ${gameVariant}`);
-            if (user.realBalances.game < betAmount) {
-                return res.status(400).json({
-                    status: 'error',
-                    message: 'Insufficient game balance'
-                });
-            }
+
+            // Deduct balance and create a pending bet
+            user.practiceBalance -= betAmount;
+
+            const game = new Game({
+                user: user._id,
+                gameType,
+                gameVariant,
+                betAmount,
+                pickedNumber,
+                status: 'pending',
+                multiplier: 8 // Practice games yield 8x returns
+            });
+
+            await game.save();
+
+            // Track stats
+            user.gamesPlayed = (user.gamesPlayed || 0) + 1;
+            await user.save();
+
+            // Return immediate response with pending status
+            return res.status(200).json({
+                status: 'success',
+                data: {
+                    game: {
+                        id: game._id,
+                        pickedNumber,
+                        gameVariant,
+                        status: 'pending',
+                        multiplier: 8
+                    },
+                    newBalance: user.practiceBalance
+                }
+            });
+        }
+
+        // Real Bets Processing (Synchronous)
+        console.log(`[REAL BET] User: ${user.walletAddress}, Amount: ${betAmount}, Variant: ${gameVariant}`);
+        if (user.realBalances.game < betAmount) {
+            return res.status(400).json({
+                status: 'error',
+                message: 'Insufficient game balance'
+            });
         }
 
         // MULTI-GAME WIN LOGIC
@@ -131,124 +166,113 @@ router.post('/bet', auth, async (req, res) => {
         const payout = isWin ? betAmount * multiplier : 0;
 
         // Update balances
-        if (gameType === 'practice') {
-            user.practiceBalance -= betAmount;
-            if (isWin) {
-                user.practiceBalance += payout;
-            }
-        } else {
-            user.realBalances.game -= betAmount;
-            if (isWin) {
-                // Winners 8X Split: 2X to Winners Wallet, 6X to Game Wallet
-                const directPayout = betAmount * 2;
-                const compoundPayout = betAmount * 6;
+        user.realBalances.game -= betAmount;
+        if (isWin) {
+            // Winners 8X Split: 2X to Winners Wallet, 6X to Game Wallet
+            const directPayout = betAmount * 2;
+            const compoundPayout = betAmount * 6;
 
-                user.realBalances.winners += directPayout;
-                user.realBalances.game += compoundPayout;
+            user.realBalances.winners += directPayout;
+            user.realBalances.game += compoundPayout;
 
-                // Track total rewards won
-                user.totalRewardsWon += payout;
-            } else {
-                user.cashbackStats.totalNetLoss += betAmount;
-
-                // Real-time 1% Lucky Draw funding (20% of the 5% cashback quota)
-                const luckyFunding = betAmount * 0.01;
-                user.realBalances.luckyDrawWallet = (user.realBalances.luckyDrawWallet || 0) + luckyFunding;
-            }
+            // Track total rewards won
+            user.totalRewardsWon += payout;
         }
+    }
 
         // Update stats
-        user.gamesPlayed += 1;
-        if (isWin) {
-            user.gamesWon += 1;
-            user.totalWinnings += (payout - betAmount);
+        user.gamesPlayed = (user.gamesPlayed || 0) + 1;
+    if (isWin) {
+        user.gamesWon = (user.gamesWon || 0) + 1;
+        user.totalWinnings = (user.totalWinnings || 0) + (payout - betAmount);
+    }
+
+    // Auto-Entry Lucky Draw Check
+    if (gameType === 'real' && user.settings?.autoLuckyDraw && user.realBalances.luckyDrawWallet >= 10) {
+        try {
+            const JackpotService = require('../services/jackpotService');
+            const jackpotService = new JackpotService(req.app.get('io'));
+            await jackpotService.purchaseTickets(user._id, 1);
+        } catch (luckyError) {
+            console.warn("Auto-Lucky Draw failed:", luckyError.message);
         }
+    }
 
-        // Auto-Entry Lucky Draw Check
-        if (gameType === 'real' && user.settings?.autoLuckyDraw && user.realBalances.luckyDrawWallet >= 10) {
-            try {
-                const JackpotService = require('../services/jackpotService');
-                const jackpotService = new JackpotService(req.app.get('io'));
-                await jackpotService.purchaseTickets(user._id, 1);
-            } catch (luckyError) {
-                console.warn("Auto-Lucky Draw failed:", luckyError.message);
-            }
-        }
+    await user.save();
 
-        await user.save();
+    // Process referral commissions for winners (Real mode only)
+    if (isWin) {
+        const { distributeWinnerCommissions } = require('../utils/incomeDistributor');
+        await distributeWinnerCommissions(user._id, payout);
+    }
 
-        // Process referral commissions for winners (Real mode only)
-        if (gameType === 'real' && isWin) {
-            const { distributeWinnerCommissions } = require('../utils/incomeDistributor');
-            await distributeWinnerCommissions(user._id, payout);
-        }
+    // Create game record
+    const game = new Game({
+        user: user._id,
+        gameType,
+        gameVariant,
+        betAmount,
+        pickedNumber,
+        luckyNumber,
+        isWin,
+        payout,
+        multiplier
+    });
 
-        // Create game record
-        const game = new Game({
-            user: user._id,
-            gameType,
-            gameVariant,
-            betAmount,
-            pickedNumber,
-            luckyNumber,
+    await game.save();
+
+    // Emit Real-Time Socket Event
+    const io = req.app.get('io');
+    if (io) {
+        io.to(user._id.toString()).emit('game_result', {
             isWin,
             payout,
-            multiplier
+            luckyNumber,
+            gameType,
+            gameVariant,
+            newBalance: user.realBalances.game
         });
 
-        await game.save();
-
-        // Emit Real-Time Socket Event
-        const io = req.app.get('io');
-        if (io) {
-            io.to(user._id.toString()).emit('game_result', {
-                isWin,
-                payout,
-                luckyNumber,
-                gameType,
-                gameVariant,
-                newBalance: gameType === 'practice' ? user.practiceBalance : user.realBalances.game
+        if (isWin) {
+            // Notify of winners wallet update
+            io.to(user._id.toString()).emit('balance_update', {
+                type: 'win',
+                amount: betAmount * 2, // 2X payout to winners wallet
+                newBalance: user.realBalances.winners
             });
 
-            if (gameType === 'real' && isWin) {
-                // Notify of winners wallet update
-                io.to(user._id.toString()).emit('balance_update', {
-                    type: 'win',
-                    amount: betAmount * 2, // 2X payout to winners wallet
-                    newBalance: user.realBalances.winners
-                });
-
-                io.emit('global_win', {
-                    player: user.walletAddress.slice(0, 6) + '...' + user.walletAddress.slice(-4),
-                    amount: payout,
-                    game: gameVariant.toUpperCase()
-                });
-            }
+            io.emit('global_win', {
+                player: user.walletAddress.slice(0, 6) + '...' + user.walletAddress.slice(-4),
+                amount: payout,
+                game: gameVariant.toUpperCase()
+            });
         }
-
-        res.status(200).json({
-            status: 'success',
-            data: {
-                game: {
-                    id: game._id,
-                    pickedNumber,
-                    luckyNumber,
-                    isWin,
-                    payout,
-                    multiplier,
-                    gameVariant
-                },
-                newBalance: gameType === 'practice' ? user.practiceBalance : user.realBalances.game
-            }
-        });
-
-    } catch (error) {
-        console.error('Bet error:', error);
-        res.status(500).json({
-            status: 'error',
-            message: 'Failed to process bet'
-        });
     }
+
+    res.status(200).json({
+        status: 'success',
+        data: {
+            game: {
+                id: game._id,
+                pickedNumber,
+                luckyNumber,
+                isWin,
+                payout,
+                multiplier,
+                gameVariant,
+                status: 'resolved'
+            },
+            newBalance: user.realBalances.game
+        }
+    });
+
+} catch (error) {
+    console.error('Bet error:', error);
+    res.status(500).json({
+        status: 'error',
+        message: 'Failed to process bet'
+    });
+}
 });
 
 // Get game history

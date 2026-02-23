@@ -8,6 +8,7 @@ import { DepositModal } from "@/components/cash/DepositModal";
 import { WithdrawalModal } from "@/components/cash/WithdrawalModal";
 
 import { DepositHistoryTable } from "@/components/cash/DepositHistoryTable";
+import { WithdrawalHistoryTable } from "@/components/cash/WithdrawalHistoryTable";
 import { BalanceAnimator } from "@/components/cash/BalanceAnimator";
 import { ConfettiEffect } from "@/components/effects/ConfettiEffect";
 import { Card, CardContent } from "@/components/ui/Card";
@@ -463,10 +464,19 @@ function CashDashboardContent() {
                 {/* Deposit History Section */}
                 <div className="mt-12 space-y-6">
                     <div className="flex items-center gap-3">
-                        <h2 className="text-[10px] font-black uppercase tracking-[0.4em] text-white/20 whitespace-nowrap">ACTIVITY_LEDGER</h2>
+                        <h2 className="text-[10px] font-black uppercase tracking-[0.4em] text-emerald-500/50 whitespace-nowrap">INFLOW_LEDGER</h2>
                         <div className="h-px flex-1 bg-white/5" />
                     </div>
                     <DepositHistoryTable />
+                </div>
+
+                {/* Withdrawal History Section */}
+                <div className="mt-12 space-y-6">
+                    <div className="flex items-center gap-3">
+                        <h2 className="text-[10px] font-black uppercase tracking-[0.4em] text-red-500/50 whitespace-nowrap">OUTFLOW_LEDGER</h2>
+                        <div className="h-px flex-1 bg-white/5" />
+                    </div>
+                    <WithdrawalHistoryTable />
                 </div>
             </main>
 

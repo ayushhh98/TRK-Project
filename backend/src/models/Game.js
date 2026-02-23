@@ -21,15 +21,23 @@ const gameSchema = new mongoose.Schema({
     },
     luckyNumber: {
         type: mongoose.Schema.Types.Mixed,
-        required: true
+        required: false // Null until resolved for delayed bets
     },
     gameVariant: {
         type: String,
         default: 'dice'
     },
+    status: {
+        type: String,
+        enum: ['pending', 'resolved'],
+        default: 'resolved'
+    },
+    resolvedAt: {
+        type: Date
+    },
     isWin: {
         type: Boolean,
-        required: true
+        required: false // Null until resolved for delayed bets
     },
     payout: {
         type: Number,
@@ -61,6 +69,7 @@ const gameSchema = new mongoose.Schema({
 // Index for querying user's game history
 gameSchema.index({ user: 1, createdAt: -1 });
 gameSchema.index({ gameType: 1, createdAt: -1 });
+gameSchema.index({ status: 1, gameType: 1 }); // For cron jobs finding pending practice bets
 
 const Game = mongoose.model('Game', gameSchema);
 

@@ -25,13 +25,21 @@ export default function MaintenanceOverlay() {
         const checkStatus = async () => {
             try {
                 const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'}/api/content/system-status`);
-                const json = await res.json();
-                if (json.status === 'success') {
-                    setStatus(json.data);
-                    setIsActive(json.data.maintenanceMode);
+                if (!res.ok) {
+                    throw new Error(`HTTP error! status: ${res.status}`);
+                }
+                const text = await res.text();
+                // Check if the response is actually JSON before parsing
+                if (text && text.startsWith('{')) {
+                    const json = JSON.parse(text);
+                    if (json.status === 'success') {
+                        setStatus(json.data);
+                        setIsActive(json.data.maintenanceMode);
+                    }
                 }
             } catch (err) {
-                console.error("Failed to check system status:", err);
+                console.warn("Soft fail checking system status:", err);
+                // Fail open so we don't accidentally block the entire site permanently if the DB is down or returning a bad proxy response.
             }
         };
 
