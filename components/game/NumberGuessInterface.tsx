@@ -35,7 +35,7 @@ export function NumberGuessInterface({ onPlaceEntry, isProcessing, lastResult, c
     useEffect(() => {
         const fetchRound = async () => {
             try {
-                const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+                const baseUrl = process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === 'production' ? 'https://trk-backend.onrender.com' : 'http://localhost:5000');
                 const res = await fetch(`${baseUrl}/api/game/round`, {
                     headers: { 'Authorization': `Bearer ${localStorage.getItem('trk_token')}` }
                 });
@@ -87,7 +87,7 @@ export function NumberGuessInterface({ onPlaceEntry, isProcessing, lastResult, c
     useEffect(() => {
         const fetchRoundsHistory = async () => {
             try {
-                const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+                const baseUrl = process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === 'production' ? 'https://trk-backend.onrender.com' : 'http://localhost:5000');
                 const res = await fetch(`${baseUrl}/api/game/rounds/history`, {
                     headers: { 'Authorization': `Bearer ${localStorage.getItem('trk_token')}` }
                 });

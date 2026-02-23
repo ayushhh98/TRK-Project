@@ -26,17 +26,17 @@ const resolveApiOrigin = () => {
         return normalizeBase(window.location.origin);
     }
     if (process.env.NODE_ENV === 'production') {
-        return 'https://trk-project.onrender.com';
+        return 'https://trk-backend.onrender.com';
     }
-    return 'https://trk-project.onrender.com';
+    return 'http://localhost:5000';
 };
 
 export const getApiBase = () => resolveApiOrigin();
 
 export const getApiUrl = () => {
     // Force localhost for development stability
-    if (process.env.NODE_ENV !== 'production') {
-        return 'https://trk-project.onrender.com/api';
+    if (process.env.NODE_ENV !== 'production' && !process.env.NEXT_PUBLIC_API_URL) {
+        return 'http://localhost:5000/api';
     }
     const origin = resolveApiOrigin();
     if (!origin) return '/api';

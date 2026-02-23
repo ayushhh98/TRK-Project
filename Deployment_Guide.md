@@ -11,7 +11,7 @@ To successfully deploy the TRK High-Fidelity Gaming Ecosystem, follow these conf
 
 | Variable | Description | Recommended Value |
 | :--- | :--- | :--- |
-| `NEXT_PUBLIC_API_URL` | The URL of your hosted backend. | `https://trk-backend.onrender.com/api` |
+| `NEXT_PUBLIC_API_URL` | The URL of your hosted backend. | `https://trk-backend.onrender.com` |
 | `NEXT_PUBLIC_USE_MOCK` | Disable mock data for production. | `false` |
 | `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` | Your WalletConnect Project ID. | `08d2e2afd590bbda2cea0158427bbc39` |
 
