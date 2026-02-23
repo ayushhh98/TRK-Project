@@ -1563,6 +1563,19 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
                     if (err instanceof UserRejectedRequestError || err.code === 4001 || err.message?.includes("User rejected")) {
                         toast.info("Connection Cancelled");
                     } else if (isMissingProvider) {
+                        const isMobile = typeof window !== 'undefined' && /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+                        if (isMobile) {
+                            if (walletType === 'MetaMask') {
+                                toast.loading(`Opening ${walletType} App...`);
+                                window.location.href = `https://metamask.app.link/dapp/${window.location.host}`;
+                                return;
+                            } else if (walletType === 'Trust Wallet') {
+                                toast.loading(`Opening ${walletType}...`);
+                                window.location.href = `https://link.trustwallet.com/open_url?coin_id=60&url=https://${window.location.host}`;
+                                return;
+                            }
+                        }
+
                         toast.error(`${walletType} extension not detected.`, {
                             description: `Please install the ${walletType} extension or try "Other Wallets".`
                         });
