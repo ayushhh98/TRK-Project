@@ -1565,15 +1565,16 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
                     } else if (isMissingProvider) {
                         const isMobile = typeof window !== 'undefined' && /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
                         if (isMobile) {
-                            if (walletType === 'MetaMask') {
-                                toast.loading(`Opening ${walletType} App...`);
-                                window.location.href = `https://metamask.app.link/dapp/${window.location.host}`;
-                                return;
-                            } else if (walletType === 'Trust Wallet') {
-                                toast.loading(`Opening ${walletType}...`);
-                                window.location.href = `https://link.trustwallet.com/open_url?coin_id=60&url=https://${window.location.host}`;
-                                return;
+                            // Instead of manual deep linking which loses the handshake payload,
+                            // we fallback to Web3Modal which natively handles mobile deep linking + WalletConnect
+                            toast.info(`Opening Mobile Wallet...`);
+                            await openWeb3Modal();
+
+                            // If they connected successfully via modal, trigger auth
+                            if (wagmiConnectedRef.current && wagmiAddressRef.current) {
+                                await login();
                             }
+                            return;
                         }
 
                         toast.error(`${walletType} extension not detected.`, {
