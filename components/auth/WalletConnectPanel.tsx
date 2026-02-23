@@ -202,6 +202,41 @@ export function WalletConnectPanel({
         );
     };
 
+    const isPureMobileBrowser = typeof window !== 'undefined' &&
+        /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) &&
+        !(window as any).ethereum;
+
+    if (isPureMobileBrowser) {
+        return (
+            <div className="relative overflow-hidden rounded-2xl border border-white/[0.08] bg-[#17181b] shadow-2xl p-8 flex flex-col items-center justify-center min-h-[400px]">
+                <Link
+                    href={closeHref}
+                    className="absolute right-5 top-5 z-10 h-10 w-10 rounded-full hover:bg-white/5 flex items-center justify-center transition group"
+                    aria-label="Close"
+                >
+                    <X className="h-5 w-5 text-white/50 group-hover:text-white/80" />
+                </Link>
+
+                <div className="h-20 w-20 rounded-2xl bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center shadow-lg shadow-blue-500/20 mb-6">
+                    <Wallet className="h-10 w-10 text-white" />
+                </div>
+
+                <h2 className="text-2xl font-bold text-white tracking-tight mb-3">Mobile Connect</h2>
+                <p className="text-white/50 text-center text-sm max-w-xs mb-8">
+                    Securely connect using any supported Web3 wallet app installed on your device.
+                </p>
+
+                <Button
+                    onClick={handleWalletConnect}
+                    disabled={isLoading}
+                    className="h-14 w-full max-w-xs rounded-xl bg-yellow-400 text-black hover:bg-yellow-300 font-bold text-lg shadow-[0_10px_30px_rgba(250,204,21,0.2)]"
+                >
+                    {isLoading ? "Connecting..." : "Open WalletConnect"}
+                </Button>
+            </div>
+        );
+    }
+
     return (
         <div className="relative overflow-hidden rounded-2xl border border-white/[0.08] bg-[#17181b] shadow-2xl">
             <Link

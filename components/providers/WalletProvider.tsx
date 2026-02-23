@@ -1516,6 +1516,24 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
             })));
             console.log("Requested Wallet Type:", walletType);
 
+            // Synchronous Mobile Browser Check: Prevent iOS from blocking deep links by opening Web3Modal immediately
+            // if we know there is no native injected provider, avoiding the long timeout of connectAsync.
+            const isPureMobileBrowser = typeof window !== 'undefined' &&
+                /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) &&
+                !(window as any).ethereum;
+
+            if (isPureMobileBrowser && (walletType === 'MetaMask' || walletType === 'Trust Wallet')) {
+                console.log("Pure Mobile Browser Detected. Bypassing custom connector search for Web3Modal.");
+                toast.info(`Opening WalletConnect...`);
+                await openWeb3Modal();
+
+                // If a wallet connects immediately via cached session or modal action
+                if (wagmiConnectedRef.current && wagmiAddressRef.current) {
+                    await login();
+                }
+                return;
+            }
+
             let connector;
 
             if (walletType === 'Trust Wallet') {
