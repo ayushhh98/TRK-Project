@@ -276,7 +276,7 @@ const startCronJobs = (io) => {
     cron.schedule('0 * * * *', async () => {
         console.log("🎲 Resolving Active Game Rounds...");
         try {
-            const activeRound = await GuessRound.getCurrentRound();
+            const activeRound = await GuessRound.getCurrentRound(true);
             if (!activeRound) {
                 // Start a new round if somehow none exists
                 await GuessRound.startNewRound(3600);

@@ -603,7 +603,7 @@ router.get('/round', async (req, res) => {
     try {
         let round = await GuessRound.getCurrentRound();
         if (!round) {
-            round = await GuessRound.startNewRound(60);
+            round = await GuessRound.startNewRound(3600);
         }
         res.status(200).json({
             status: 'success',

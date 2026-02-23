@@ -35,12 +35,16 @@ const guessRoundSchema = new mongoose.Schema({
 });
 
 // Static: Get current active round
-guessRoundSchema.statics.getCurrentRound = async function () {
-    return this.findOne({ status: 'active' }).sort({ roundNumber: -1 });
+guessRoundSchema.statics.getCurrentRound = async function (includeExpired = false) {
+    const query = { status: 'active' };
+    if (!includeExpired) {
+        query.endTime = { $gt: new Date() };
+    }
+    return this.findOne(query).sort({ roundNumber: -1 });
 };
 
-// Static: Start new round
-guessRoundSchema.statics.startNewRound = async function (durationSeconds = 60) {
+// Static: Start new round (default to 1 hour)
+guessRoundSchema.statics.startNewRound = async function (durationSeconds = 3600) {
     const latest = await this.findOne().sort({ roundNumber: -1 });
     const nextNumber = latest ? latest.roundNumber + 1 : 1;
     const now = new Date();
