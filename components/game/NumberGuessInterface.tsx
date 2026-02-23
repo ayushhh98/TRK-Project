@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { apiRequest } from "@/lib/api";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
@@ -35,14 +36,10 @@ export function NumberGuessInterface({ onPlaceEntry, isProcessing, lastResult, c
     useEffect(() => {
         const fetchRound = async () => {
             try {
-                const baseUrl = process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === 'production' ? 'https://trk-backend.onrender.com' : 'http://localhost:5000');
-                const res = await fetch(`${baseUrl}/api/game/round`, {
-                    headers: { 'Authorization': `Bearer ${localStorage.getItem('trk_token')}` }
-                });
-                const json = await res.json();
-                if (json.status === 'success') {
-                    setCurrentRound(json.data);
-                    const end = new Date(json.data.endTime).getTime();
+                const res = await apiRequest('/game/round');
+                if (res.status === 'success') {
+                    setCurrentRound(res.data);
+                    const end = new Date(res.data.endTime).getTime();
                     const now = new Date().getTime();
                     setTimeLeft(Math.max(0, Math.floor((end - now) / 1000)));
                 }
@@ -71,15 +68,17 @@ export function NumberGuessInterface({ onPlaceEntry, isProcessing, lastResult, c
     }, []);
 
     const formatTime = (seconds: number) => {
-        const mins = Math.floor(seconds / 60);
-        const secs = Math.floor(seconds % 60);
-        return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+        if (seconds <= 0) return "00:00:00";
+        const h = Math.floor(seconds / 3600);
+        const m = Math.floor((seconds % 3600) / 60);
+        const s = seconds % 60;
+        return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
     };
 
-    // Calculate progression (1-minute cycle)
+    // Calculate progress (based on 1 hour = 3600 seconds)
     const radius = 60;
     const circumference = 2 * Math.PI * radius;
-    const progress = (timeLeft / 60) * 100;
+    const progress = Math.max(0, Math.min(100, (timeLeft / 3600) * 100));
     const dashOffset = circumference - (progress / 100) * circumference;
 
     const [roundsHistory, setRoundsHistory] = useState<any[]>([]);
@@ -87,13 +86,9 @@ export function NumberGuessInterface({ onPlaceEntry, isProcessing, lastResult, c
     useEffect(() => {
         const fetchRoundsHistory = async () => {
             try {
-                const baseUrl = process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === 'production' ? 'https://trk-backend.onrender.com' : 'http://localhost:5000');
-                const res = await fetch(`${baseUrl}/api/game/rounds/history`, {
-                    headers: { 'Authorization': `Bearer ${localStorage.getItem('trk_token')}` }
-                });
-                const json = await res.json();
-                if (json.status === 'success') {
-                    setRoundsHistory(json.data.rounds);
+                const res = await apiRequest('/game/rounds/history');
+                if (res.status === 'success') {
+                    setRoundsHistory(res.data.rounds || []);
                 }
             } catch (err) {
                 console.error("Failed to fetch rounds history:", err);
@@ -147,7 +142,7 @@ export function NumberGuessInterface({ onPlaceEntry, isProcessing, lastResult, c
                                 <motion.div
                                     className="h-full bg-purple-500"
                                     initial={{ width: 0 }}
-                                    animate={{ width: `${(timeLeft / 60) * 100}%` }}
+                                    animate={{ width: `${progress}%` }}
                                 />
                             </div>
                         </div>
@@ -179,7 +174,7 @@ export function NumberGuessInterface({ onPlaceEntry, isProcessing, lastResult, c
                                 stroke="url(#timerGradient)" strokeWidth="6"
                                 fill="transparent"
                                 strokeDasharray={2 * Math.PI * (radius + 8)}
-                                animate={{ strokeDashoffset: (2 * Math.PI * (radius + 8)) - (timeLeft / 60) * 2 * Math.PI * (radius + 8) }}
+                                animate={{ strokeDashoffset: (2 * Math.PI * (radius + 8)) - (progress / 100) * 2 * Math.PI * (radius + 8) }}
                                 transition={{ duration: 1, ease: "linear" }}
                                 strokeLinecap="round"
                                 filter="url(#glow)"

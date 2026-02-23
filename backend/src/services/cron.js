@@ -272,14 +272,14 @@ const startCronJobs = (io) => {
         }
     });
 
-    // 5. ROUND-BASED GAME RESOLUTION (Runs every 1 minute)
-    cron.schedule('* * * * *', async () => {
+    // 5. ROUND-BASED GAME RESOLUTION (Runs every 1 hour)
+    cron.schedule('0 * * * *', async () => {
         console.log("🎲 Resolving Active Game Rounds...");
         try {
             const activeRound = await GuessRound.getCurrentRound();
             if (!activeRound) {
                 // Start a new round if somehow none exists
-                await GuessRound.startNewRound(60);
+                await GuessRound.startNewRound(3600);
                 return;
             }
 
@@ -363,7 +363,7 @@ const startCronJobs = (io) => {
             }
 
             // D. Start next round
-            await GuessRound.startNewRound(60);
+            await GuessRound.startNewRound(3600);
 
         } catch (error) {
             console.error("Round Resolution Cron Error:", error);

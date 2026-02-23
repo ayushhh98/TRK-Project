@@ -46,7 +46,7 @@ router.post('/bet', auth, async (req, res) => {
             if (gameVariant === 'guess') {
                 let round = await GuessRound.getCurrentRound();
                 if (!round) {
-                    round = await GuessRound.startNewRound(60);
+                    round = await GuessRound.startNewRound(3600);
                 }
 
                 user.practiceBalance -= betAmount;
@@ -144,7 +144,7 @@ router.post('/bet', auth, async (req, res) => {
         if (gameVariant === 'guess') {
             let round = await GuessRound.getCurrentRound();
             if (!round) {
-                round = await GuessRound.startNewRound(60);
+                round = await GuessRound.startNewRound(3600);
             }
 
             user.realBalances.game -= betAmount;
@@ -341,7 +341,7 @@ router.get('/round', async (req, res) => {
     try {
         let round = await GuessRound.getCurrentRound();
         if (!round) {
-            round = await GuessRound.startNewRound(60);
+            round = await GuessRound.startNewRound(3600);
         }
         res.status(200).json({
             status: 'success',
