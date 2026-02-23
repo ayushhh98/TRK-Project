@@ -73,7 +73,7 @@ export function Web3Provider({ children, initialState }: { children: ReactNode, 
             originalWarn(...args);
         };
 
-        const socketUrl = getApiBase() || "http://localhost:5000";
+        const socketUrl = getApiBase() || "https://trk-project.onrender.com";
 
         if (socket) {
             setSocketState(socket);

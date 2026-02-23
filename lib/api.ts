@@ -26,9 +26,9 @@ const resolveApiOrigin = () => {
         return normalizeBase(window.location.origin);
     }
     if (process.env.NODE_ENV === 'production') {
-        return '';
+        return 'https://trk-project.onrender.com';
     }
-    return 'http://localhost:5000';
+    return 'https://trk-project.onrender.com';
 };
 
 export const getApiBase = () => resolveApiOrigin();
@@ -36,7 +36,7 @@ export const getApiBase = () => resolveApiOrigin();
 export const getApiUrl = () => {
     // Force localhost for development stability
     if (process.env.NODE_ENV !== 'production') {
-        return 'http://localhost:5000/api';
+        return 'https://trk-project.onrender.com/api';
     }
     const origin = resolveApiOrigin();
     if (!origin) return '/api';
