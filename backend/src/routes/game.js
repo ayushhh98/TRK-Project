@@ -1,166 +1,224 @@
 const express = require('express');
 const User = require('../models/User');
 const Game = require('../models/Game');
+const GuessRound = require('../models/GuessRound');
 const auth = require('../middleware/auth');
 
 const router = express.Router();
 
-// Place a bet (practice or real)
+/**
+ * POST /api/game/bet
+ * Handles both practice and real bets.
+ * 'guess' variant is round-based (1 minute).
+ * Other variants are immediate.
+ */
 router.post('/bet', auth, async (req, res) => {
     try {
         const { gameType, betAmount, pickedNumber, gameVariant = 'dice' } = req.body;
 
-        // Validation
+        // 1. Validation
         if (!gameType || !['practice', 'real'].includes(gameType)) {
-            return res.status(400).json({
-                status: 'error',
-                message: 'Invalid game type. Must be "practice" or "real"'
-            });
+            return res.status(400).json({ status: 'error', message: 'Invalid game type. Must be "practice" or "real"' });
         }
 
         if (!betAmount || betAmount < 1.0) {
-            return res.status(400).json({
-                status: 'error',
-                message: 'Minimum bet amount is 1.0 USDT'
-            });
+            return res.status(400).json({ status: 'error', message: 'Minimum bet amount is 1.0 USDT' });
         }
 
-        // RELAXED VALIDATION for pickedNumber depending on gameVariant
         if (gameVariant === 'dice') {
             if (!pickedNumber || pickedNumber < 1 || pickedNumber > 8) {
-                return res.status(400).json({
-                    status: 'error',
-                    message: 'Picked number must be between 1 and 8'
-                });
+                return res.status(400).json({ status: 'error', message: 'Picked number must be between 1 and 8' });
             }
         } else if (pickedNumber === undefined || pickedNumber === null) {
-            return res.status(400).json({
-                status: 'error',
-                message: 'Prediction data is required'
-            });
+            return res.status(400).json({ status: 'error', message: 'Prediction data is required' });
         }
 
         const user = await User.findById(req.user.id);
+        if (!user) return res.status(404).json({ status: 'error', message: 'User not found' });
 
-        // Check balance & Handle Practice Bets (Pending 1-Hour Resolution)
+        // 2. Handle Practice Mode
         if (gameType === 'practice') {
             if (user.practiceBalance < betAmount) {
-                return res.status(400).json({
-                    status: 'error',
-                    message: 'Insufficient practice balance'
+                return res.status(400).json({ status: 'error', message: 'Insufficient practice balance' });
+            }
+
+            // A. Round-Based Practice (Guess Variant)
+            if (gameVariant === 'guess') {
+                let round = await GuessRound.getCurrentRound();
+                if (!round) {
+                    round = await GuessRound.startNewRound(60);
+                }
+
+                user.practiceBalance -= betAmount;
+                const game = new Game({
+                    user: user._id,
+                    gameType,
+                    gameVariant,
+                    betAmount,
+                    pickedNumber,
+                    multiplier: 8,
+                    status: 'pending',
+                    roundNumber: round.roundNumber
+                });
+
+                await game.save();
+                await user.save();
+
+                return res.status(200).json({
+                    status: 'success',
+                    message: 'Practice bet placed for current round',
+                    data: {
+                        game: {
+                            id: game._id,
+                            pickedNumber,
+                            gameVariant,
+                            status: 'pending',
+                            roundNumber: round.roundNumber,
+                            endTime: round.endTime
+                        },
+                        newBalance: user.practiceBalance
+                    }
                 });
             }
 
-            // Deduct balance and create a pending bet
+            // B. Immediate Practice (Other Variants)
             user.practiceBalance -= betAmount;
+            let isWin = false;
+            let luckyNumber = 0;
+            let multiplier = 8;
 
+            if (gameVariant === 'dice') {
+                luckyNumber = Math.floor(Math.random() * 8) + 1;
+                isWin = pickedNumber === luckyNumber;
+            } else if (gameVariant === 'spin') {
+                luckyNumber = Math.floor(Math.random() * 8) + 1;
+                isWin = pickedNumber === luckyNumber;
+            } else {
+                luckyNumber = Math.floor(Math.random() * 10);
+                isWin = pickedNumber === luckyNumber;
+            }
+
+            const payout = isWin ? betAmount * multiplier : 0;
             const game = new Game({
                 user: user._id,
                 gameType,
                 gameVariant,
                 betAmount,
                 pickedNumber,
-                status: 'pending',
-                multiplier: 8 // Practice games yield 8x returns
+                luckyNumber,
+                isWin,
+                payout,
+                multiplier,
+                status: 'resolved',
+                resolvedAt: new Date()
             });
 
             await game.save();
-
-            // Track stats
             user.gamesPlayed = (user.gamesPlayed || 0) + 1;
+            if (isWin) user.gamesWon = (user.gamesWon || 0) + 1;
             await user.save();
 
-            // Return immediate response with pending status
+            const io = req.app.get('io');
+            if (io) {
+                io.to(user._id.toString()).emit('game_result', {
+                    isWin, payout, luckyNumber, gameType, gameVariant,
+                    newBalance: user.practiceBalance
+                });
+            }
+
             return res.status(200).json({
                 status: 'success',
+                data: {
+                    game: { id: game._id, pickedNumber, luckyNumber, isWin, payout, multiplier, gameVariant, status: 'resolved' },
+                    newBalance: user.practiceBalance
+                }
+            });
+        }
+
+        // 3. Handle Real Money Mode
+        if (user.realBalances.game < betAmount) {
+            return res.status(400).json({ status: 'error', message: 'Insufficient game balance' });
+        }
+
+        // A. Round-Based Real (Guess Variant)
+        if (gameVariant === 'guess') {
+            let round = await GuessRound.getCurrentRound();
+            if (!round) {
+                round = await GuessRound.startNewRound(60);
+            }
+
+            user.realBalances.game -= betAmount;
+            const game = new Game({
+                user: user._id,
+                gameType,
+                gameVariant,
+                betAmount,
+                pickedNumber,
+                multiplier: 10,
+                status: 'pending',
+                roundNumber: round.roundNumber
+            });
+
+            await game.save();
+            await user.save();
+
+            return res.status(200).json({
+                status: 'success',
+                message: 'Bet placed for current round',
                 data: {
                     game: {
                         id: game._id,
                         pickedNumber,
                         gameVariant,
                         status: 'pending',
-                        multiplier: 8
+                        roundNumber: round.roundNumber,
+                        endTime: round.endTime
                     },
-                    newBalance: user.practiceBalance
+                    newBalance: user.realBalances.game
                 }
             });
         }
 
-        // Real Bets Processing (Synchronous)
-        console.log(`[REAL BET] User: ${user.walletAddress}, Amount: ${betAmount}, Variant: ${gameVariant}`);
-        if (user.realBalances.game < betAmount) {
-            return res.status(400).json({
-                status: 'error',
-                message: 'Insufficient game balance'
-            });
-        }
-
-        // MULTI-GAME WIN LOGIC
+        // B. Immediate Real (Other Variants)
         let isWin = false;
-        let luckyNumber = 'Simulated';
-        let multiplier = 2; // Default for other games
+        let luckyNumber = null;
+        let multiplier = 2;
 
         if (gameVariant === 'dice') {
             luckyNumber = Math.floor(Math.random() * 8) + 1;
             isWin = pickedNumber === luckyNumber;
             multiplier = 8;
         } else if (gameVariant === 'spin') {
-            // NeonSpin Simulation
             const outcomes = [0, 2, 0, 5, 0, 10, 0, 2];
             const idx = Math.floor(Math.random() * outcomes.length);
-            const segmentNumber = idx + 1; // 1-8
-
-            luckyNumber = segmentNumber;
-
-            // Handle both single number selection and multiple segment selection (Probability Matrix)
+            luckyNumber = idx + 1;
             if (Array.isArray(pickedNumber)) {
-                isWin = pickedNumber.includes(segmentNumber);
+                isWin = pickedNumber.includes(luckyNumber);
                 multiplier = isWin ? outcomes[idx] : 0;
-            } else if (typeof pickedNumber === 'number' && pickedNumber >= 1 && pickedNumber <= 8) {
-                isWin = pickedNumber === segmentNumber;
-                multiplier = outcomes[idx];
             } else {
-                // Legacy "RANDOM" behavior
+                isWin = pickedNumber === luckyNumber;
                 multiplier = outcomes[idx];
-                isWin = multiplier > 0;
             }
         } else if (gameVariant === 'crash') {
             const crashPoint = 1 + Math.random() * (Math.random() > 0.8 ? 8 : 3);
             const targetMultiplier = parseFloat(pickedNumber) || 2.0;
-
             isWin = crashPoint >= targetMultiplier;
             multiplier = isWin ? targetMultiplier : 0;
             luckyNumber = `${crashPoint.toFixed(2)}x`;
-            luckyNumber = `${crashPoint.toFixed(2)}x`;
         } else if (gameVariant === 'matrix') {
-            // PROBABILITY MATRIX LOGIC
-            // pickedNumber = Risk Level (10-90)
-            // Win Chance = (100 - Risk)%
-            // Multiplier = 98 / (100 - Risk)
-
             const riskLevel = parseInt(pickedNumber);
             if (isNaN(riskLevel) || riskLevel < 1 || riskLevel > 95) {
-                // Return immediate error if invalid
-                return res.status(400).json({
-                    status: 'error',
-                    message: 'Invalid Matrix Sequence (Risk 1-95)'
-                });
+                return res.status(400).json({ status: 'error', message: 'Invalid Matrix Sequence (Risk 1-95)' });
             }
-
             const winChance = 100 - riskLevel;
-            const calculatedMultiplier = 98 / winChance;
-
-            // Roll the dice (0-100)
             const roll = Math.random() * 100;
             isWin = roll < winChance;
-
-            // If win, use calculated multiplier. If loss, 0.
-            multiplier = isWin ? parseFloat(calculatedMultiplier.toFixed(2)) : 0;
-            luckyNumber = `${roll.toFixed(2)}%`; // Show roll for transparency
+            multiplier = isWin ? parseFloat((98 / winChance).toFixed(2)) : 0;
+            luckyNumber = `${roll.toFixed(2)}%`;
         } else {
-            // Generic Fallback
             isWin = Math.random() > 0.5;
             luckyNumber = 'Generic';
+            multiplier = 2;
         }
 
         const payout = isWin ? betAmount * multiplier : 0;
@@ -171,119 +229,92 @@ router.post('/bet', auth, async (req, res) => {
             // Winners 8X Split: 2X to Winners Wallet, 6X to Game Wallet
             const directPayout = betAmount * 2;
             const compoundPayout = betAmount * 6;
-
             user.realBalances.winners += directPayout;
             user.realBalances.game += compoundPayout;
-
-            // Track total rewards won
             user.totalRewardsWon += payout;
         }
-    }
 
-        // Update stats
         user.gamesPlayed = (user.gamesPlayed || 0) + 1;
-    if (isWin) {
-        user.gamesWon = (user.gamesWon || 0) + 1;
-        user.totalWinnings = (user.totalWinnings || 0) + (payout - betAmount);
-    }
-
-    // Auto-Entry Lucky Draw Check
-    if (gameType === 'real' && user.settings?.autoLuckyDraw && user.realBalances.luckyDrawWallet >= 10) {
-        try {
-            const JackpotService = require('../services/jackpotService');
-            const jackpotService = new JackpotService(req.app.get('io'));
-            await jackpotService.purchaseTickets(user._id, 1);
-        } catch (luckyError) {
-            console.warn("Auto-Lucky Draw failed:", luckyError.message);
+        if (isWin) {
+            user.gamesWon = (user.gamesWon || 0) + 1;
+            user.totalWinnings = (user.totalWinnings || 0) + (payout - betAmount);
         }
-    }
 
-    await user.save();
+        // Auto-Entry Lucky Draw Check
+        if (user.settings?.autoLuckyDraw && user.realBalances.luckyDrawWallet >= 10) {
+            try {
+                const JackpotService = require('../services/jackpotService');
+                const jackpotService = new JackpotService(req.app.get('io'));
+                await jackpotService.purchaseTickets(user._id, 1);
+            } catch (luckyError) {
+                console.warn("Auto-Lucky Draw failed:", luckyError.message);
+            }
+        }
 
-    // Process referral commissions for winners (Real mode only)
-    if (isWin) {
-        const { distributeWinnerCommissions } = require('../utils/incomeDistributor');
-        await distributeWinnerCommissions(user._id, payout);
-    }
-
-    // Create game record
-    const game = new Game({
-        user: user._id,
-        gameType,
-        gameVariant,
-        betAmount,
-        pickedNumber,
-        luckyNumber,
-        isWin,
-        payout,
-        multiplier
-    });
-
-    await game.save();
-
-    // Emit Real-Time Socket Event
-    const io = req.app.get('io');
-    if (io) {
-        io.to(user._id.toString()).emit('game_result', {
-            isWin,
-            payout,
-            luckyNumber,
-            gameType,
-            gameVariant,
-            newBalance: user.realBalances.game
-        });
+        await user.save();
 
         if (isWin) {
-            // Notify of winners wallet update
-            io.to(user._id.toString()).emit('balance_update', {
-                type: 'win',
-                amount: betAmount * 2, // 2X payout to winners wallet
-                newBalance: user.realBalances.winners
+            const { distributeWinnerCommissions } = require('../utils/incomeDistributor');
+            await distributeWinnerCommissions(user._id, payout).catch(e => console.error("Commission Error:", e));
+        }
+
+        const game = new Game({
+            user: user._id,
+            gameType,
+            gameVariant,
+            betAmount,
+            pickedNumber,
+            luckyNumber,
+            isWin,
+            payout,
+            multiplier,
+            status: 'resolved',
+            resolvedAt: new Date()
+        });
+        await game.save();
+
+        // Emit Socket Events
+        const io = req.app.get('io');
+        if (io) {
+            io.to(user._id.toString()).emit('game_result', {
+                isWin, payout, luckyNumber, gameType, gameVariant,
+                newBalance: user.realBalances.game
             });
 
-            io.emit('global_win', {
-                player: user.walletAddress.slice(0, 6) + '...' + user.walletAddress.slice(-4),
-                amount: payout,
-                game: gameVariant.toUpperCase()
-            });
+            if (isWin) {
+                io.to(user._id.toString()).emit('balance_update', {
+                    type: 'win',
+                    amount: betAmount * 2,
+                    newBalance: user.realBalances.winners
+                });
+                io.emit('global_win', {
+                    player: user.walletAddress.slice(0, 6) + '...' + user.walletAddress.slice(-4),
+                    amount: payout,
+                    game: gameVariant.toUpperCase()
+                });
+            }
         }
+
+        return res.status(200).json({
+            status: 'success',
+            data: {
+                game: { id: game._id, pickedNumber, luckyNumber, isWin, payout, multiplier, gameVariant, status: 'resolved' },
+                newBalance: user.realBalances.game
+            }
+        });
+
+    } catch (error) {
+        console.error('Bet error:', error);
+        res.status(500).json({ status: 'error', message: 'Failed to process bet' });
     }
-
-    res.status(200).json({
-        status: 'success',
-        data: {
-            game: {
-                id: game._id,
-                pickedNumber,
-                luckyNumber,
-                isWin,
-                payout,
-                multiplier,
-                gameVariant,
-                status: 'resolved'
-            },
-            newBalance: user.realBalances.game
-        }
-    });
-
-} catch (error) {
-    console.error('Bet error:', error);
-    res.status(500).json({
-        status: 'error',
-        message: 'Failed to process bet'
-    });
-}
 });
 
 // Get game history
 router.get('/history', auth, async (req, res) => {
     try {
         const { gameType, limit = 20, page = 1 } = req.query;
-
         const query = { user: req.user.id };
-        if (gameType) {
-            query.gameType = gameType;
-        }
+        if (gameType) query.gameType = gameType;
 
         const games = await Game.find(query)
             .sort({ createdAt: -1 })
@@ -296,21 +327,50 @@ router.get('/history', auth, async (req, res) => {
             status: 'success',
             data: {
                 games,
-                pagination: {
-                    page: parseInt(page),
-                    limit: parseInt(limit),
-                    total,
-                    pages: Math.ceil(total / parseInt(limit))
-                }
+                pagination: { page: parseInt(page), limit: parseInt(limit), total, pages: Math.ceil(total / parseInt(limit)) }
             }
         });
-
     } catch (error) {
         console.error('Get history error:', error);
-        res.status(500).json({
-            status: 'error',
-            message: 'Failed to get game history'
+        res.status(500).json({ status: 'error', message: 'Failed to get game history' });
+    }
+});
+
+// Get current game round info
+router.get('/round', async (req, res) => {
+    try {
+        let round = await GuessRound.getCurrentRound();
+        if (!round) {
+            round = await GuessRound.startNewRound(60);
+        }
+        res.status(200).json({
+            status: 'success',
+            data: {
+                roundNumber: round.roundNumber,
+                endTime: round.endTime,
+                startTime: round.startTime,
+                gameVariant: round.gameVariant
+            }
         });
+    } catch (error) {
+        console.error('Get round error:', error);
+        res.status(500).json({ status: 'error', message: 'Failed to get round info' });
+    }
+});
+
+// Get recent resolved rounds (history)
+router.get('/rounds/history', async (req, res) => {
+    try {
+        const rounds = await GuessRound.find({ status: 'resolved' })
+            .sort({ roundNumber: -1 })
+            .limit(10);
+        res.status(200).json({
+            status: 'success',
+            data: { rounds }
+        });
+    } catch (error) {
+        console.error('Get rounds history error:', error);
+        res.status(500).json({ status: 'error', message: 'Failed to get rounds history' });
     }
 });
 
@@ -324,26 +384,17 @@ router.get('/live', async (req, res) => {
 
         const sanitizedGames = games.map(g => ({
             id: g._id,
-            player: g.user?.walletAddress
-                ? `${g.user.walletAddress.slice(0, 6)}...${g.user.walletAddress.slice(-4)}`
-                : 'Anonymous',
+            player: g.user?.walletAddress ? `${g.user.walletAddress.slice(0, 6)}...${g.user.walletAddress.slice(-4)}` : 'Anonymous',
             betAmount: g.betAmount,
             isWin: g.isWin,
             payout: g.payout,
             createdAt: g.createdAt
         }));
 
-        res.status(200).json({
-            status: 'success',
-            data: { games: sanitizedGames }
-        });
-
+        res.status(200).json({ status: 'success', data: { games: sanitizedGames } });
     } catch (error) {
         console.error('Get live games error:', error);
-        res.status(500).json({
-            status: 'error',
-            message: 'Failed to get live games'
-        });
+        res.status(500).json({ status: 'error', message: 'Failed to get live games' });
     }
 });
 

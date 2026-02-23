@@ -1,6 +1,7 @@
 const cron = require('node-cron');
 const User = require('../models/User');
 const Game = require('../models/Game');
+const GuessRound = require('../models/GuessRound');
 const { ethers } = require('ethers');
 const { calculateUserRank, processDailyClubIncome } = require('../utils/clubIncomeUtils');
 // const TRKGameABI = require('../contracts/TRKGameABI.json'); // Ensure this exists or use artifact
@@ -15,10 +16,19 @@ const TICKET_PRICE = 10; // USDT
 const startCronJobs = (io) => {
     console.log("⏰ Starting Server-Side Cron Jobs...");
 
-    // 1. DAILY CASHBACK, ROI ON ROI & 30-DAY CLEANUP (Runs at 00:00 UTC every day)
+    // 1. DAILY MAINTENANCE (Runs at 00:00 UTC every day)
     cron.schedule('0 0 * * *', async () => {
         console.log("🔄 Running Daily Maintenance Routine...");
         try {
+            // 0. RESET DAILY WITHDRAWAL LIMITS
+            console.log("📅 Resetting Daily Withdrawal Limits...");
+            await User.updateMany({}, {
+                $set: {
+                    'withdrawalLimits.dailyWithdrawalTotal': 0,
+                    'withdrawalLimits.lastWithdrawalDate': new Date()
+                }
+            });
+
             // A. CLEANUP: Delete practice accounts older than 30 days without activation
             const thirtyDaysAgo = new Date();
             thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
@@ -45,8 +55,6 @@ const startCronJobs = (io) => {
             });
 
             for (const user of users) {
-                // Referral Qualification: Each referral must have 100+ USDT real volume OR 100+ USDT deposit
-                // "each referred user maintains a minimum trading/deposit volume of 100 USDT"
                 const qualifiedRefs = await User.countDocuments({
                     _id: { $in: user.referrals || [] },
                     $or: [
@@ -55,11 +63,6 @@ const startCronJobs = (io) => {
                     ]
                 });
 
-                // Tier Benefits for Capping
-                // Tier 1: 100% cap (0 refs)
-                // Tier 2: 200% cap (5 refs)
-                // Tier 3: 400% cap (10 refs) -> Down to 300% after 1Lakh users
-                // Tier 4: 800% cap (20 refs) -> Down to 400% after 1Lakh users
                 let capMultiplier = 1;
                 if (qualifiedRefs >= 20) {
                     capMultiplier = activationCount > 100000 ? 4 : 8;
@@ -71,28 +74,20 @@ const startCronJobs = (io) => {
 
                 const maxRecovery = user.activation.totalDeposited * capMultiplier;
 
-                // Re-deposit check: "earnings pause... User must: Re-deposit minimum 100 USDT"
-                // Verify if user has deposited since last cap reached
                 if (user.cashbackStats.totalRecovered >= maxRecovery) {
-                    console.log(`User ${user.walletAddress}: Cashback Cap Reached (${maxRecovery} USDT). Awaiting 100+ USDT re-deposit.`);
                     continue;
                 }
 
-                // Calculate daily recovery
                 let dailyCashback = user.cashbackStats.totalNetLoss * cashbackRate;
-
-                // Ensure we don't exceed max recovery or remaining net loss
                 const remainingToCap = maxRecovery - user.cashbackStats.totalRecovered;
                 const remainingLoss = user.cashbackStats.totalNetLoss - user.cashbackStats.totalRecovered;
 
                 dailyCashback = Math.min(dailyCashback, remainingToCap, remainingLoss);
 
                 if (dailyCashback > 0) {
-                    // Update stats
                     user.cashbackStats.totalRecovered += dailyCashback;
-                    user.cashbackStats.todayCashback = dailyCashback; // Basis for ROI on ROI
+                    user.cashbackStats.todayCashback = dailyCashback;
 
-                    // 20% Auto-fund Lucky Draw from Daily Cashback
                     const luckyDrawFunding = dailyCashback * 0.20;
                     const netCashback = dailyCashback - luckyDrawFunding;
 
@@ -184,7 +179,7 @@ const startCronJobs = (io) => {
         console.log("🎲 Resolving Pending Practice Games...");
         try {
             const pendingGames = await Game.find({ gameType: 'practice', status: 'pending' }).populate('user');
-            
+
             if (pendingGames.length > 0) {
                 // Generate the global lucky numbers for each variant
                 const luckyNumbers = {
@@ -192,11 +187,11 @@ const startCronJobs = (io) => {
                     dice: Math.floor(Math.random() * 8) + 1, // 1-8
                     spin: Math.floor(Math.random() * 8) + 1 // 1-8
                 };
-                
+
                 console.log(`Global Practice Draw: Guess[${luckyNumbers.guess}], Dice[${luckyNumbers.dice}], Spin[${luckyNumbers.spin}]`);
 
                 const userUpdates = {}; // Map of user._id -> user document
-                
+
                 for (const game of pendingGames) {
                     if (!game.user) continue;
 
@@ -208,33 +203,33 @@ const startCronJobs = (io) => {
                         luckyNumber = luckyNumbers.guess;
                         isWin = game.pickedNumber === luckyNumber;
                     } else if (game.gameVariant === 'dice') {
-                         luckyNumber = luckyNumbers.dice;
-                         isWin = game.pickedNumber === luckyNumber;
+                        luckyNumber = luckyNumbers.dice;
+                        isWin = game.pickedNumber === luckyNumber;
                     } else if (game.gameVariant === 'spin') {
-                         luckyNumber = luckyNumbers.spin;
-                         isWin = game.pickedNumber === luckyNumber;
+                        luckyNumber = luckyNumbers.spin;
+                        isWin = game.pickedNumber === luckyNumber;
                     } else {
-                         // Fallback
-                         luckyNumber = Math.floor(Math.random() * 10);
-                         isWin = game.pickedNumber === luckyNumber;
+                        // Fallback
+                        luckyNumber = Math.floor(Math.random() * 10);
+                        isWin = game.pickedNumber === luckyNumber;
                     }
 
                     const payout = isWin ? game.betAmount * multiplier : 0;
-                    
+
                     game.isWin = isWin;
                     game.luckyNumber = luckyNumber;
                     game.payout = payout;
                     game.multiplier = multiplier;
                     game.status = 'resolved';
                     game.resolvedAt = new Date();
-                    
+
                     await game.save();
 
                     const userId = game.user._id.toString();
 
                     if (isWin) {
                         if (!userUpdates[userId]) {
-                             userUpdates[userId] = await User.findById(userId);
+                            userUpdates[userId] = await User.findById(userId);
                         }
                         if (userUpdates[userId]) {
                             userUpdates[userId].practiceBalance = (userUpdates[userId].practiceBalance || 0) + payout;
@@ -242,10 +237,10 @@ const startCronJobs = (io) => {
                             userUpdates[userId].totalWinnings = (userUpdates[userId].totalWinnings || 0) + (payout - game.betAmount);
                         }
                     }
-                    
+
                     if (typeof io !== 'undefined' && io) {
-                        const currentBalance = userUpdates[userId] 
-                            ? userUpdates[userId].practiceBalance 
+                        const currentBalance = userUpdates[userId]
+                            ? userUpdates[userId].practiceBalance
                             : game.user.practiceBalance;
 
                         io.to(userId).emit('game_result', {
@@ -260,7 +255,7 @@ const startCronJobs = (io) => {
                         });
                     }
                 }
-                
+
                 // Save all batch-updated users
                 let resolvedUsersCount = 0;
                 for (const userId in userUpdates) {
@@ -274,6 +269,104 @@ const startCronJobs = (io) => {
             }
         } catch (error) {
             console.error("Practice Game Resolution Error:", error);
+        }
+    });
+
+    // 5. ROUND-BASED GAME RESOLUTION (Runs every 1 minute)
+    cron.schedule('* * * * *', async () => {
+        console.log("🎲 Resolving Active Game Rounds...");
+        try {
+            const activeRound = await GuessRound.getCurrentRound();
+            if (!activeRound) {
+                // Start a new round if somehow none exists
+                await GuessRound.startNewRound(60);
+                return;
+            }
+
+            // A. Pick lucky number
+            const luckyNumber = Math.floor(Math.random() * 10);
+            activeRound.luckyNumber = luckyNumber;
+            activeRound.status = 'resolved';
+            await activeRound.save();
+
+            // B. Resolve games for this round
+            const pendingGames = await Game.find({
+                roundNumber: activeRound.roundNumber,
+                status: 'pending',
+                gameVariant: 'guess'
+            });
+
+            console.log(`[ROUND ${activeRound.roundNumber}] Lucky Number: ${luckyNumber}. Resolving ${pendingGames.length} bets.`);
+
+            for (const game of pendingGames) {
+                const isWin = game.pickedNumber === luckyNumber;
+                const payout = isWin ? game.betAmount * game.multiplier : 0;
+
+                game.luckyNumber = luckyNumber;
+                game.isWin = isWin;
+                game.payout = payout;
+                game.status = 'resolved';
+                game.resolvedAt = new Date();
+                await game.save();
+
+                // If win, update user balance (handled immediately during bet for simplified logic here, 
+                // but usually we update here if it was a delayed resolve. 
+                // Wait, in my /bet route I already deducted. So if win, I MUST ADD BACK).
+                if (isWin) {
+                    const user = await User.findById(game.user);
+                    if (user) {
+                        if (game.gameType === 'practice') {
+                            user.practiceBalance += payout;
+                        } else {
+                            // Winners 8X Split: 2X to Winners Wallet, 6X to Game Wallet
+                            const directPayout = game.betAmount * 2;
+                            const compoundPayout = game.betAmount * 6;
+                            user.realBalances.winners += directPayout;
+                            user.realBalances.game += compoundPayout;
+                            user.totalRewardsWon += payout;
+
+                            // Referral logic
+                            const { distributeWinnerCommissions } = require('../utils/incomeDistributor');
+                            await distributeWinnerCommissions(user._id, payout).catch(e => { });
+                        }
+
+                        user.gamesWon = (user.gamesWon || 0) + 1;
+                        user.totalWinnings = (user.totalWinnings || 0) + (payout - game.betAmount);
+                        await user.save();
+                    }
+                }
+
+                // Emit individual result
+                if (io) {
+                    const user = await User.findById(game.user);
+                    io.to(game.user.toString()).emit('game_result', {
+                        isWin,
+                        payout,
+                        luckyNumber,
+                        gameType: game.gameType,
+                        gameVariant: game.gameVariant,
+                        newBalance: game.gameType === 'practice' ? user?.practiceBalance : user?.realBalances.game,
+                        status: 'resolved',
+                        roundNumber: game.roundNumber
+                    });
+                }
+            }
+
+            // C. Emit Global Round Resolve event
+            if (io) {
+                io.emit('round_resolved', {
+                    roundNumber: activeRound.roundNumber,
+                    luckyNumber,
+                    gameVariant: 'guess',
+                    resolvedAt: new Date()
+                });
+            }
+
+            // D. Start next round
+            await GuessRound.startNewRound(60);
+
+        } catch (error) {
+            console.error("Round Resolution Cron Error:", error);
         }
     });
 };

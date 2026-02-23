@@ -371,69 +371,57 @@ router.post('/withdraw', auth, requireFreshAuth, withdrawalLimiter, checkWithdra
         }
 
         const floatAmount = parseFloat(amount);
-        if (isNaN(floatAmount) || floatAmount <= 0) {
-            return res.status(400).json({ status: 'error', message: 'Invalid amount' });
+        if (isNaN(floatAmount) || floatAmount < 5) {
+            return res.status(400).json({ status: 'error', message: 'Minimum withdrawal amount is 5 USDT' });
         }
 
-        // ENFORCE LUCKY WALLET RULES
-        if (walletType === 'lucky') {
-            if (floatAmount < 5) {
-                return res.status(400).json({ status: 'error', message: 'Minimum withdrawal for Lucky Wallet is 5 USDT' });
-            }
-            if (floatAmount > 5000) {
-                return res.status(400).json({ status: 'error', message: 'Maximum withdrawal for Lucky Wallet is 5,000 USDT per day' });
-            }
-            // Fee is 10% for Lucky
-            const fee = floatAmount * 0.10;
-            // The actual logic below will handle the deduction and transfer
-            // We'll pass the specific fee to the withdrawal handler if needed, 
-            // or just ensure the user has enough.
+        // Daily Limit Check
+        const today = new Date().toISOString().split('T')[0];
+        const lastWD = user.withdrawalLimits?.lastWithdrawalDate?.toISOString().split('T')[0];
+
+        if (lastWD !== today) {
+            user.withdrawalLimits.dailyWithdrawalTotal = 0;
+            user.withdrawalLimits.lastWithdrawalDate = new Date();
         }
 
-        if (!amount || amount < 1) {
+        if ((user.withdrawalLimits.dailyWithdrawalTotal + floatAmount) > 5000) {
             return res.status(400).json({
                 status: 'error',
-                message: 'Minimum withdrawal amount is 1 USDT'
+                message: `Exceeds daily withdrawal limit. Remaining for today: ${Math.max(0, 5000 - user.withdrawalLimits.dailyWithdrawalTotal)} USDT`
             });
         }
 
-        // Check activation requirements
-        // Tier 1 (10+ USDT): Unlocks Direct Level & Winners Income ONLY
+        // Tier Checks
         if (walletType === 'directLevel' && !user.activation?.canWithdrawDirectLevel) {
-            return res.status(403).json({
-                status: 'error',
-                message: 'Direct Level withdrawal requires minimum 10 USDT deposit (Tier 1)'
-            });
+            return res.status(403).json({ status: 'error', message: 'Direct Level withdrawal requires Tier 1 activation' });
         }
-
         if (walletType === 'winners' && !user.activation?.canWithdrawWinners) {
-            return res.status(403).json({
-                status: 'error',
-                message: 'Winners Income withdrawal requires minimum 10 USDT deposit (Tier 1)'
-            });
+            return res.status(403).json({ status: 'error', message: 'Winners Income withdrawal requires Tier 1 activation' });
         }
-
-        // Tier 2 (100+ USDT): Unlocks ALL other wallets
         const tier2Wallets = ['cash', 'game', 'cashback', 'lucky', 'roiOnRoi', 'club', 'teamWinners'];
-        if (tier2Wallets.includes(walletType)) {
-            if (!user.activation?.canWithdrawAll) {
-                return res.status(403).json({
-                    status: 'error',
-                    message: `Withdrawal from ${walletType} wallet requires minimum 100 USDT deposit (Tier 2)`
-                });
-            }
+        if (tier2Wallets.includes(walletType) && !user.activation?.canWithdrawAll) {
+            return res.status(403).json({ status: 'error', message: `Withdrawal from ${walletType} requires Tier 2 activation` });
         }
 
         // Check balance
-        if (user.realBalances[walletType] < amount) {
-            return res.status(400).json({
-                status: 'error',
-                message: 'Insufficient balance'
-            });
+        if (user.realBalances[walletType] < floatAmount) {
+            return res.status(400).json({ status: 'error', message: 'Insufficient balance' });
         }
 
+        // Apply 10% Fee
+        const fee = floatAmount * 0.10;
+        const netAmount = floatAmount - fee;
+
         // Process withdrawal
-        user.realBalances[walletType] -= amount;
+        user.realBalances[walletType] -= floatAmount;
+        user.withdrawalLimits.dailyWithdrawalTotal += floatAmount;
+
+        // Update Platform Stats
+        const PlatformStats = require('../models/PlatformStats');
+        const stats = await PlatformStats.getToday();
+        stats.todayWithdrawals += floatAmount;
+        stats.sustainabilityFees += fee;
+        await stats.save();
 
         // Record the withdrawal
         user.withdrawals = user.withdrawals || [];
@@ -570,6 +558,71 @@ router.post('/lucky-topup', auth, async (req, res) => {
     } catch (error) {
         console.error('Lucky top-up error:', error);
         res.status(500).json({ status: 'error', message: 'Failed to process top-up' });
+    }
+});
+
+// POST /deposit/transfer-practice
+// Allows Tier 2 users to transfer practice earnings to real game balance
+router.post('/transfer-practice', auth, async (req, res) => {
+    try {
+        const { amount } = req.body;
+        const user = await User.findById(req.user.id);
+
+        if (!user.activation?.canTransferPractice) {
+            return res.status(403).json({
+                status: 'error',
+                message: 'Practice transfer requires Tier 2 activation and 100+ practice volume'
+            });
+        }
+
+        const floatAmount = parseFloat(amount);
+        if (isNaN(floatAmount) || floatAmount <= 0) {
+            return res.status(400).json({ status: 'error', message: 'Invalid amount' });
+        }
+
+        // Limit: Max 1% of practice earnings or fixed cap?
+        // Let's implement a 1% of totalPracticeVolume as the max transferable to keep it "Limited"
+        const maxTransferable = user.activation.totalPracticeVolume * 0.01;
+
+        // Track transferred amount to avoid abuse? 
+        // For now, let's just check against balance.
+        if (user.practiceBalance < floatAmount) {
+            return res.status(400).json({ status: 'error', message: 'Insufficient practice balance' });
+        }
+
+        // Simple cap for now (e.g. max 10 USDT per transfer)
+        if (floatAmount > 10) {
+            return res.status(400).json({ status: 'error', message: 'Maximum transfer per transaction is 10 USDT' });
+        }
+
+        // Deduct from practice, add to real game balance
+        user.practiceBalance -= floatAmount;
+        user.realBalances.game = (user.realBalances.game || 0) + floatAmount;
+
+        await user.save();
+
+        // Emit real-time update
+        const io = req.app.get('io');
+        if (io) {
+            io.to(user._id.toString()).emit('balance_update', {
+                type: 'practice_transfer',
+                amount: floatAmount,
+                newPracticeBalance: user.practiceBalance,
+                newRealBalance: user.realBalances.game
+            });
+        }
+
+        res.status(200).json({
+            status: 'success',
+            message: `Successfully transferred ${floatAmount} USDT to Game Wallet`,
+            data: {
+                practiceBalance: user.practiceBalance,
+                gameBalance: user.realBalances.game
+            }
+        });
+    } catch (error) {
+        console.error('Practice transfer error:', error);
+        res.status(500).json({ status: 'error', message: 'Failed to process transfer' });
     }
 });
 

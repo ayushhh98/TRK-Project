@@ -2,6 +2,7 @@ const express = require('express');
 const User = require('../models/User');
 const Game = require('../models/Game');
 const GameCommitment = require('../models/GameCommitment');
+const GuessRound = require('../models/GuessRound');
 const auth = require('../middleware/auth');
 const { requireFreshAuth } = require('../middleware/freshAuth');
 const { antiReplayCommit } = require('../middleware/antiReplay');
@@ -594,6 +595,44 @@ router.get('/live', async (req, res) => {
             status: 'error',
             message: 'Failed to get live games'
         });
+    }
+});
+
+// Get current game round info
+router.get('/round', async (req, res) => {
+    try {
+        let round = await GuessRound.getCurrentRound();
+        if (!round) {
+            round = await GuessRound.startNewRound(60);
+        }
+        res.status(200).json({
+            status: 'success',
+            data: {
+                roundNumber: round.roundNumber,
+                endTime: round.endTime,
+                startTime: round.startTime,
+                gameVariant: round.gameVariant || 'guess'
+            }
+        });
+    } catch (error) {
+        console.error('Get round error:', error);
+        res.status(500).json({ status: 'error', message: 'Failed to get round info' });
+    }
+});
+
+// Get recent resolved rounds (history)
+router.get('/rounds/history', async (req, res) => {
+    try {
+        const rounds = await GuessRound.find({ status: 'resolved' })
+            .sort({ roundNumber: -1 })
+            .limit(10);
+        res.status(200).json({
+            status: 'success',
+            data: { rounds }
+        });
+    } catch (error) {
+        console.error('Get rounds history error:', error);
+        res.status(500).json({ status: 'error', message: 'Failed to get rounds history' });
     }
 });
 

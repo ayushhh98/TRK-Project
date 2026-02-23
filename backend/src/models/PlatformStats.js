@@ -22,6 +22,10 @@ const platformStatsSchema = new mongoose.Schema({
         type: Number,
         default: 0
     },
+    sustainabilityFees: {
+        type: Number,
+        default: 0
+    },
     updatedAt: {
         type: Date,
         default: Date.now

@@ -29,6 +29,7 @@ import { BalanceAnimator } from "@/components/cash/BalanceAnimator";
 import { ConfettiEffect } from "@/components/effects/ConfettiEffect";
 import { toast } from "sonner";
 import { dedupeByKey } from "@/lib/collections";
+import { PracticeTransferModal } from "@/components/cash/PracticeTransferModal";
 
 
 export default function DashboardPage() {
@@ -41,6 +42,7 @@ export default function DashboardPage() {
 
     const [isDepositOpen, setIsDepositOpen] = useState(false);
     const [isWithdrawOpen, setIsWithdrawOpen] = useState(false);
+    const [isTransferOpen, setIsTransferOpen] = useState(false);
     const [isClient, setIsClient] = useState(false);
     const [posters, setPosters] = useState<any[]>([]);
     const router = useRouter();
@@ -197,16 +199,41 @@ export default function DashboardPage() {
                                 </div>
                                 <div>
                                     <div className="text-[10px] font-black uppercase tracking-widest text-white/40 mb-1">
-                                        {isRealMode ? "Total Assets" : "Practice Balance"}
+                                        {isRealMode ? "Total Assets" : "Practice Mode Balance"}
                                     </div>
                                     <div className="flex items-baseline gap-2">
-                                        <BalanceAnimator
-                                            balance={isRealMode ? ((realBalances.cash || 0) + (realBalances.game || 0)).toFixed(2) : parseFloat(practiceBalance?.toString() || "0").toFixed(2)}
-                                            className="text-4xl font-mono font-bold text-white tracking-tight"
-                                            suffix=""
-                                        />
-                                        <span className={cn("text-sm font-bold", isRealMode ? "text-amber-500" : "text-emerald-500")}>USDT</span>
+                                        {isRealMode ? (
+                                            <>
+                                                <BalanceAnimator
+                                                    balance={((realBalances.cash || 0) + (realBalances.game || 0)).toFixed(2)}
+                                                    className="text-4xl font-mono font-bold text-white tracking-tight"
+                                                    suffix=""
+                                                />
+                                                <span className="text-sm font-bold text-amber-500">USDT</span>
+                                            </>
+                                        ) : (
+                                            <div className="relative group">
+                                                <div className="absolute -inset-2 bg-blue-500/10 blur-xl rounded-2xl group-hover:bg-blue-500/20 transition-all" />
+                                                <div className="relative flex items-baseline gap-2">
+                                                    <BalanceAnimator
+                                                        balance={parseFloat(practiceBalance?.toString() || "0").toFixed(2)}
+                                                        className="text-4xl font-mono font-bold text-blue-400 tracking-tight"
+                                                        suffix=""
+                                                    />
+                                                    <span className="text-sm font-bold text-blue-400/60 uppercase tracking-widest">USDT</span>
+                                                </div>
+                                            </div>
+                                        )}
                                     </div>
+                                    {!isRealMode && hasRealAccess && (
+                                        <button
+                                            onClick={() => setIsTransferOpen(true)}
+                                            className="mt-3 flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-500/10 border border-blue-500/20 text-[10px] font-black uppercase tracking-widest text-blue-400 hover:bg-blue-400 hover:text-black transition-all"
+                                        >
+                                            <Zap className="h-3 w-3" />
+                                            Bridge to Game
+                                        </button>
+                                    )}
                                 </div>
                             </div>
 
@@ -496,6 +523,10 @@ export default function DashboardPage() {
             <WithdrawalModal
                 isOpen={isWithdrawOpen}
                 onClose={() => setIsWithdrawOpen(false)}
+            />
+            <PracticeTransferModal
+                isOpen={isTransferOpen}
+                onClose={() => setIsTransferOpen(false)}
             />
         </div>
     );

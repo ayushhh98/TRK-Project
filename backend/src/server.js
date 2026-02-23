@@ -345,6 +345,9 @@ const startServer = (port) => {
 
             // Initialize system config
             system.init(io).catch(err => logger.error('Failed to init system config:', err));
+
+            // Start Cron Jobs for Round Resolution, Maintenance, etc.
+            startCronJobs(io);
         }).on('error', (err) => {
             if (err.code === 'EADDRINUSE') {
                 logger.error(`❌ Port ${port} is already in use. Please close the other process or use "npm run clean-start".`);

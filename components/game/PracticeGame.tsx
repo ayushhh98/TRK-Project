@@ -61,27 +61,7 @@ export function PracticeGame() {
     };
 
     return (
-        <div className="space-y-10 max-w-3xl mx-auto">
-            {/* TRK Game Header & Practice Balance */}
-            <div className="flex flex-col items-center justify-center space-y-6 pt-4">
-                <h1 className="text-2xl md:text-3xl font-black text-yellow-400 tracking-wide">
-                    TRK Game
-                </h1>
-
-                <div className="relative group">
-                    <div className="absolute inset-0 bg-blue-500/20 blur-xl rounded-2xl group-hover:bg-blue-500/30 transition-all" />
-                    <div className="relative border-2 border-blue-500/40 bg-black/50 backdrop-blur-md rounded-2xl px-8 py-3 flex flex-col items-center text-center shadow-[0_0_15px_rgba(59,130,246,0.15)]">
-                        <div className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.2em] text-white/50 mb-1">
-                            <Dices className="h-3 w-3" />
-                            <span>Practice Mode</span>
-                        </div>
-                        <div className="text-3xl font-black text-blue-400 flex items-baseline gap-2">
-                            {parseFloat(practiceBalance || "0").toFixed(2)}
-                            <span className="text-sm font-bold text-blue-400/60 uppercase tracking-widest">USDT</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
+        <div className="max-w-3xl mx-auto pt-6">
 
             <NumberGuessInterface
                 onPlaceEntry={handlePlaceEntry}

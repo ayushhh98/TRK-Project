@@ -9,6 +9,7 @@ import { X, ArrowUpRight, ShieldAlert, BadgeCheck } from "lucide-react";
 import { useWallet } from "@/components/providers/WalletProvider";
 import { useSocket } from "@/components/providers/Web3Provider";
 import { PausedOverlay } from "@/components/ui/PausedOverlay";
+import { toast } from "sonner";
 
 // Human-readable labels for wallet types
 const WALLET_LABELS: Record<string, string> = {
@@ -30,8 +31,8 @@ interface WithdrawalModalProps {
 }
 
 export function WithdrawalModal({ isOpen, onClose, preSelectedWallet }: WithdrawalModalProps) {
-    const { withdraw, realBalances } = useWallet();
-    const [amount, setAmount] = useState<string>("10");
+    const { withdraw, realBalances, user } = useWallet();
+    const [amount, setAmount] = useState<string>("5");
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [selectedWallet, setSelectedWallet] = useState<string>(preSelectedWallet || "game");
 
@@ -67,7 +68,20 @@ export function WithdrawalModal({ isOpen, onClose, preSelectedWallet }: Withdraw
         if (isPaused) return;
 
         const numAmount = parseFloat(amount);
-        if (isNaN(numAmount) || numAmount <= 0 || numAmount > maxAmount) return;
+        if (isNaN(numAmount) || numAmount < 5) {
+            toast.error("Minimum withdrawal is 5 USDT");
+            return;
+        }
+        if (numAmount > maxAmount) {
+            toast.error("Insufficient balance");
+            return;
+        }
+
+        const dailyUsed = user?.withdrawalLimits?.dailyWithdrawalTotal || 0;
+        if (dailyUsed + numAmount > 5000) {
+            toast.error(`Exceeds 5,000 USDT daily limit. Remaining: ${5000 - dailyUsed} USDT`);
+            return;
+        }
 
         setIsSubmitting(true);
         try {
@@ -155,6 +169,12 @@ export function WithdrawalModal({ isOpen, onClose, preSelectedWallet }: Withdraw
                         <div className="p-6 rounded-2xl bg-white/5 border border-white/5 space-y-4">
                             <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-white/40">
                                 <ShieldAlert className="h-3 w-3 text-amber-500" /> Extraction Protocol
+                            </div>
+
+                            <div className="space-y-1 text-[9px] font-bold text-white/30 uppercase tracking-tighter">
+                                <div>• Minimum: 5.00 USDT</div>
+                                <div>• Daily Max: 5,000.00 USDT</div>
+                                <div>• Remaining Today: {Math.max(0, 5000 - (user?.withdrawalLimits?.dailyWithdrawalTotal || 0)).toFixed(2)} USDT</div>
                             </div>
 
                             <div className="space-y-2 pt-2 border-t border-white/5">

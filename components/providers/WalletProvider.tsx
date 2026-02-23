@@ -134,11 +134,17 @@ interface Activation {
     canWithdrawAll: boolean;
     cashbackActive: boolean;
     allStreamsUnlocked: boolean;
+    totalPracticeVolume?: number;
+    totalRealVolume?: number;
 }
 
 interface User {
     id: string;
     walletAddress: string;
+    withdrawalLimits?: {
+        dailyWithdrawalTotal: number;
+        lastWithdrawalDate: string;
+    };
     practiceBalance: number;
     practiceExpiry?: string | null;
     realBalances: RealBalances;
@@ -266,7 +272,7 @@ const mapGameVariant = (variant?: string): GameHistoryItem['gameType'] => {
     if (v === 'crash') return 'crash';
     if (v === 'mines') return 'mines';
     if (v === 'plinko') return 'plinko';
-    if (v === 'guess' || v === 'number-guess') return 'dice';
+    if (v === 'guess' || v === 'number-guess') return 'guess';
     return 'dice';
 };
 
@@ -451,7 +457,8 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
 
     const hasRealAccess = React.useMemo(() => {
         const totalDeposited = user?.activation?.totalDeposited || 0;
-        return totalDeposited > 0 || (realBalances.totalUnified || 0) > 0;
+        // Require at least 10 USDT deposit for real money mode
+        return totalDeposited >= 10 || (realBalances.totalUnified || 0) >= 10;
     }, [user?.activation?.totalDeposited, realBalances.totalUnified]);
 
     // Load mode preference from storage (default to practice until real access is unlocked)
@@ -822,6 +829,12 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
                     });
                     window.dispatchEvent(event);
                 }
+            } else if (data.type === 'practice_transfer') {
+                toast.success(`ðŸš‰ Bridge Sync Successful!`, {
+                    description: `Successfully moved ${data.amount.toFixed(2)} USDT from Practice to Game Wallet.`,
+                    icon: "âš¡",
+                    duration: 5000
+                });
             } else if (data.type === 'commission') {
                 toast.success(`âš¡ Commission Earned!`, {
                     description: `+$${data.amount.toFixed(2)} from ${data.commissionType || 'team activity'}`,

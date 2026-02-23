@@ -49,15 +49,14 @@ const processDailyRoi = async (io) => {
 
                     if (currentLevel <= unlockedLevels) {
                         const totalCommission = poolAmount * ROI_COMMISSION_RATES[currentLevel];
+                        const luckyCommission = totalCommission * LUCKY_DRAW_AUTO_PERCENT;
+                        const mainCommission = totalCommission - luckyCommission;
 
-                        // Update balances (Direct credit)
-                        // Assuming "passive income" means direct cash/reward points
-                        upline.realBalances.roiOnRoi = (upline.realBalances.roiOnRoi || 0) + totalCommission;
+                        // Update balances
+                        upline.realBalances.roiOnRoi = (upline.realBalances.roiOnRoi || 0) + mainCommission;
+                        upline.realBalances.luckyDrawWallet = (upline.realBalances.luckyDrawWallet || 0) + luckyCommission;
 
-                        // Optional: Add to main cash or game balance? 
-                        // Usually "passive income" -> withdrawable (cash) or game?
-                        // "Turn your team’s cashback into your daily passive income" -> likely cash/reward
-                        upline.rewardPoints += totalCommission;
+                        upline.rewardPoints += totalCommission; // Tracking total gross reward
 
                         await upline.save();
                         totalDistributed += totalCommission;
@@ -66,8 +65,10 @@ const processDailyRoi = async (io) => {
                             io.to(upline._id.toString()).emit('balance_update', {
                                 type: 'commission',
                                 commissionType: 'roi_on_roi',
-                                amount: totalCommission,
-                                newBalance: upline.realBalances.roiOnRoi
+                                amount: mainCommission,
+                                luckyAmount: luckyCommission,
+                                newBalance: upline.realBalances.roiOnRoi,
+                                newLuckyBalance: upline.realBalances.luckyDrawWallet
                             });
                         }
 

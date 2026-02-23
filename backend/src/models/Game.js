@@ -60,6 +60,10 @@ const gameSchema = new mongoose.Schema({
         type: String,
         default: null // For real games with blockchain tx
     },
+    roundNumber: {
+        type: Number,
+        index: true
+    },
     createdAt: {
         type: Date,
         default: Date.now

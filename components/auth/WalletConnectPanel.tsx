@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { QRCodeCanvas } from "qrcode.react";
-import { ShieldCheck, Wallet, X } from "lucide-react";
+import { ShieldCheck, Wallet, X, RefreshCw, ArrowUpRight } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/utils";
 import { detectInjectedWallets } from "@/lib/walletProviders";
@@ -208,31 +208,67 @@ export function WalletConnectPanel({
 
     if (isPureMobileBrowser) {
         return (
-            <div className="relative overflow-hidden rounded-2xl border border-white/[0.08] bg-[#17181b] shadow-2xl p-8 flex flex-col items-center justify-center min-h-[400px]">
+            <div className="relative overflow-hidden rounded-[32px] border border-white/10 bg-[#0F1115] shadow-2xl p-10 flex flex-col items-center justify-center min-h-[450px]">
+                {/* Cyber Background Accents */}
+                <div className="absolute top-0 left-0 w-32 h-32 bg-blue-500/10 blur-[80px] rounded-full -translate-x-1/2 -translate-y-1/2" />
+                <div className="absolute bottom-0 right-0 w-32 h-32 bg-purple-500/10 blur-[80px] rounded-full translate-x-1/2 translate-y/2" />
+
                 <Link
                     href={closeHref}
-                    className="absolute right-5 top-5 z-10 h-10 w-10 rounded-full hover:bg-white/5 flex items-center justify-center transition group"
+                    className="absolute right-6 top-6 z-10 h-10 w-10 rounded-full bg-white/[0.03] hover:bg-white/[0.08] flex items-center justify-center transition-all group border border-white/5"
                     aria-label="Close"
                 >
-                    <X className="h-5 w-5 text-white/50 group-hover:text-white/80" />
+                    <X className="h-5 w-5 text-white/40 group-hover:text-white" />
                 </Link>
 
-                <div className="h-20 w-20 rounded-2xl bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center shadow-lg shadow-blue-500/20 mb-6">
-                    <Wallet className="h-10 w-10 text-white" />
+                <div className="relative mb-10">
+                    <div className="absolute inset-0 bg-blue-500/20 blur-3xl animate-pulse rounded-full" />
+                    <div className="relative h-24 w-24 rounded-[30px] bg-gradient-to-br from-blue-600 via-cyan-500 to-emerald-400 flex items-center justify-center shadow-[0_20px_40px_rgba(37,99,235,0.3)] border border-white/20">
+                        <Wallet className="h-10 w-10 text-white" />
+                    </div>
                 </div>
 
-                <h2 className="text-2xl font-bold text-white tracking-tight mb-3">Mobile Connect</h2>
-                <p className="text-white/50 text-center text-sm max-w-xs mb-8">
-                    Securely connect using any supported Web3 wallet app installed on your device.
-                </p>
+                <div className="text-center space-y-3 mb-10 relative z-10">
+                    <h2 className="text-3xl font-black text-white tracking-tight">Mobile Protocol</h2>
+                    <p className="text-white/40 text-sm max-w-[260px] leading-relaxed font-medium">
+                        Securely connect via any Web3 wallet app like <span className="text-white/70">MetaMask</span> or <span className="text-white/70">Trust Wallet</span>.
+                    </p>
+                </div>
 
-                <Button
-                    onClick={handleWalletConnect}
-                    disabled={isLoading}
-                    className="h-14 w-full max-w-xs rounded-xl bg-yellow-400 text-black hover:bg-yellow-300 font-bold text-lg shadow-[0_10px_30px_rgba(250,204,21,0.2)]"
-                >
-                    {isLoading ? "Connecting..." : "Open WalletConnect"}
-                </Button>
+                <div className="w-full space-y-4 relative z-10">
+                    <Button
+                        onClick={handleWalletConnect}
+                        disabled={isLoading}
+                        className="h-16 w-full rounded-2xl bg-yellow-400 text-black hover:bg-yellow-300 font-black text-lg shadow-[0_15px_30px_rgba(250,204,21,0.25)] border-t border-white/20 transition-all active:scale-95"
+                    >
+                        {isLoading ? (
+                            <span className="flex items-center gap-2">
+                                <RefreshCw className="h-5 w-5 animate-spin" /> Authorizing...
+                            </span>
+                        ) : (
+                            <span className="flex items-center gap-3">
+                                <ShieldCheck className="h-5 w-5 opacity-60" /> Secure Connect
+                            </span>
+                        )}
+                    </Button>
+
+                    <div className="flex flex-col items-center gap-3 pt-4">
+                        <p className="text-[10px] font-black uppercase tracking-[0.2em] text-white/20">Don't have a mobile wallet?</p>
+                        <a
+                            href="https://trustwallet.com/download"
+                            target="_blank"
+                            className="text-xs font-bold text-blue-400 hover:text-blue-300 transition-colors flex items-center gap-1.5"
+                        >
+                            Get Trust Wallet <ArrowUpRight className="h-3 w-3" />
+                        </a>
+                    </div>
+                </div>
+
+                {/* Status Badge */}
+                <div className="absolute bottom-8 flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/[0.03] border border-white/5 opacity-50">
+                    <div className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                    <span className="text-[8px] font-black uppercase tracking-widest text-white/60">Systems Active</span>
+                </div>
             </div>
         );
     }

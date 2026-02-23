@@ -143,6 +143,10 @@ const userSchema = new mongoose.Schema({
         todayCashback: { type: Number, default: 0 },
         lastClaimedAt: { type: Date, default: null }
     },
+    withdrawalLimits: {
+        dailyWithdrawalTotal: { type: Number, default: 0 },
+        lastWithdrawalDate: { type: Date, default: Date.now }
+    },
     clubRank: { type: String, default: 'Rank 0' },
 
     isRegisteredOnChain: { type: Boolean, default: false },
