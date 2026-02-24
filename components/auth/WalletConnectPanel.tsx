@@ -236,8 +236,23 @@ export function WalletConnectPanel({
                 </div>
 
                 <div className="w-full space-y-4 relative z-10">
+                    {/* Trust Wallet - opens app directly via deep link */}
                     <Button
-                        onClick={() => handleSelect("trust")}
+                        onClick={() => {
+                            const siteUrl = typeof window !== 'undefined' ? window.location.href : 'https://trk-project.vercel.app/auth';
+                            const encodedUrl = encodeURIComponent(siteUrl);
+                            // Trust Wallet deep link - opens website inside Trust browser
+                            const trustDeepLink = `trust://browser_enable&url=${encodedUrl}`;
+                            const trustUniversalLink = `https://link.trustwallet.com/open_url?coin_id=20000714&url=${encodedUrl}`;
+                            // Try deep link first, fallback to universal link
+                            const a = document.createElement('a');
+                            a.href = trustDeepLink;
+                            a.click();
+                            // Fallback after 1.5s if app didn't open
+                            setTimeout(() => {
+                                window.location.href = trustUniversalLink;
+                            }, 1500);
+                        }}
                         disabled={isLoading}
                         className="h-16 w-full rounded-2xl bg-[#3375BB] text-white hover:bg-[#2a629d] font-black text-lg shadow-[0_15px_30px_rgba(51,117,187,0.25)] border-t border-white/20 transition-all active:scale-95 flex items-center justify-center gap-3"
                     >
@@ -246,11 +261,24 @@ export function WalletConnectPanel({
                                 <path d="M12 2L4 6v6c0 5.5 3.8 10.7 8 12 4.2-1.3 8-6.5 8-12V6l-8-4z" />
                             </svg>
                         </div>
-                        Connect Trust Wallet
+                        Open in Trust Wallet
                     </Button>
 
+                    {/* MetaMask - opens app directly via deep link */}
                     <Button
-                        onClick={() => handleSelect("metamask")}
+                        onClick={() => {
+                            const siteUrl = typeof window !== 'undefined' ? window.location.href : 'https://trk-project.vercel.app/auth';
+                            const encodedUrl = encodeURIComponent(siteUrl);
+                            // MetaMask deep link - opens URL inside MetaMask browser
+                            const mmDeepLink = `metamask://dapp/${siteUrl.replace(/^https?:\/\//, '')}`;
+                            const mmUniversalLink = `https://metamask.app.link/dapp/${siteUrl.replace(/^https?:\/\//, '')}`;
+                            const a = document.createElement('a');
+                            a.href = mmDeepLink;
+                            a.click();
+                            setTimeout(() => {
+                                window.location.href = mmUniversalLink;
+                            }, 1500);
+                        }}
                         disabled={isLoading}
                         className="h-16 w-full rounded-2xl bg-[#F6851B] text-white hover:bg-[#e27613] font-black text-lg shadow-[0_15px_30px_rgba(246,133,27,0.25)] border-t border-white/20 transition-all active:scale-95 flex items-center justify-center gap-3"
                     >
@@ -263,7 +291,7 @@ export function WalletConnectPanel({
                                 alt="MetaMask"
                             />
                         </div>
-                        Connect MetaMask
+                        Open in MetaMask
                     </Button>
 
                     <Button
