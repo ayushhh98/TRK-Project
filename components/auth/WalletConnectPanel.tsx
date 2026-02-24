@@ -250,6 +250,23 @@ export function WalletConnectPanel({
                     </Button>
 
                     <Button
+                        onClick={() => handleSelect("metamask")}
+                        disabled={isLoading}
+                        className="h-16 w-full rounded-2xl bg-[#F6851B] text-white hover:bg-[#e27613] font-black text-lg shadow-[0_15px_30px_rgba(246,133,27,0.25)] border-t border-white/20 transition-all active:scale-95 flex items-center justify-center gap-3"
+                    >
+                        <div className="h-6 w-6 rounded bg-white flex items-center justify-center p-0.5">
+                            <Image
+                                src="https://upload.wikimedia.org/wikipedia/commons/3/36/MetaMask_Fox.svg"
+                                width={16}
+                                height={16}
+                                className="h-4 w-4"
+                                alt="MetaMask"
+                            />
+                        </div>
+                        Connect MetaMask
+                    </Button>
+
+                    <Button
                         onClick={handleWalletConnect}
                         disabled={isLoading}
                         className="h-14 w-full rounded-2xl bg-white/5 text-white/70 hover:bg-white/10 font-bold text-sm border border-white/10 transition-all active:scale-95"

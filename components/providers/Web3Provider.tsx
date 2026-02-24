@@ -29,8 +29,8 @@ const initWeb3Modal = async () => {
                 metadata: {
                     name: 'TRK Cybernetic',
                     description: 'TRK Blockchain Platform',
-                    url: 'https://trk-project.vercel.app',
-                    icons: ['https://trk-project.vercel.app/logo.png']
+                    url: 'https://trk-project.onrender.com', // Match API origin
+                    icons: ['https://trk-project.onrender.com/logo.png']
                 },
                 themeVariables: {
                     '--w3m-accent': '#10b981', // Emerald 500
@@ -45,10 +45,14 @@ const initWeb3Modal = async () => {
     return web3ModalInitPromise;
 };
 
-export const openWeb3Modal = async () => {
+export const openWeb3Modal = async (options?: { walletId?: string }) => {
     const modal = await initWeb3Modal();
     if (!modal) return;
-    await modal.open();
+    if (options?.walletId) {
+        await modal.open({ view: 'Connecting', walletId: options.walletId });
+    } else {
+        await modal.open();
+    }
 };
 
 // Create Socket Context

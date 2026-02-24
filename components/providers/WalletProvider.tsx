@@ -1509,8 +1509,12 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
 
             if (isPureMobileBrowser && (walletType === 'MetaMask' || walletType === 'Trust Wallet')) {
                 console.log("Pure Mobile Browser Detected. Bypassing custom connector search for Web3Modal.");
-                toast.info(`Opening WalletConnect...`);
-                await openWeb3Modal();
+                const walletId = walletType === 'Trust Wallet'
+                    ? '4622a2b2d6af1c9844944291e5e7351a6aa24cd7b23099efac1b2fd875da31a0' // Trust Wallet
+                    : 'c5332d3020e2c89e14e7488019010caa43e496328762703f90ea2d3896bc3cb2'; // MetaMask
+
+                toast.info(`Opening ${walletType}...`);
+                await openWeb3Modal({ walletId });
 
                 // If a wallet connects immediately via cached session or modal action
                 if (wagmiConnectedRef.current && wagmiAddressRef.current) {
@@ -1570,8 +1574,12 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
                         if (isMobile) {
                             // Instead of manual deep linking which loses the handshake payload,
                             // we fallback to Web3Modal which natively handles mobile deep linking + WalletConnect
-                            toast.info(`Opening Mobile Wallet...`);
-                            await openWeb3Modal();
+                            const walletId = walletType === 'Trust Wallet'
+                                ? '4622a2b2d6af1c9844944291e5e7351a6aa24cd7b23099efac1b2fd875da31a0'
+                                : 'c5332d3020e2c89e14e7488019010caa43e496328762703f90ea2d3896bc3cb2';
+
+                            toast.info(`Opening ${walletType}...`);
+                            await openWeb3Modal({ walletId });
 
                             // If they connected successfully via modal, trigger auth
                             if (wagmiConnectedRef.current && wagmiAddressRef.current) {
