@@ -3,6 +3,14 @@ import { Outfit, Inter } from "next/font/google";
 import Script from "next/script";
 import "./globals.css";
 
+// SSR Polyfill for indexedDB (Required by Web3Modal/WalletConnect during static generation)
+if (typeof window === 'undefined') {
+  (global as any).indexedDB = {
+    open: () => ({ onsuccess: null, onerror: null }),
+    deleteDatabase: () => ({ onsuccess: null, onerror: null })
+  };
+}
+
 const outfit = Outfit({
   variable: "--font-outfit",
   subsets: ["latin"],
