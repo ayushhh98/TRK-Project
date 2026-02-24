@@ -4190,4 +4190,511 @@ router.delete('/bd-wallet/:id', auth, requireAdmin, async (req, res) => {
     }
 });
 
+// ============================================
+// ECONOMICS DASHBOARD
+// ============================================
+
+const EconomyLog = require('../models/EconomyLog');
+
+/**
+ * GET /admin/economics/dashboard
+ * Full economy stats for the Economics admin page
+ */
+router.get('/economics/dashboard', auth, requireAdmin, async (req, res) => {
+    try {
+        const NODES = ['vault', 'yield', 'pools', 'ledger', 'governance'];
+
+        // Ensure all economy nodes exist
+        let protocols = await EconomyProtocol.find();
+        if (protocols.length < NODES.length) {
+            const existing = protocols.map(p => p.nodeName);
+            const missing = NODES.filter(n => !existing.includes(n));
+            if (missing.length > 0) {
+                await EconomyProtocol.insertMany(missing.map(n => ({
+                    nodeName: n, status: 'RUNNING', changedBy: 'system', reason: 'System initialization'
+                })));
+                protocols = await EconomyProtocol.find();
+            }
+        }
+
+        // Aggregate deposit/withdrawal data
+        const [aggResult] = await User.aggregate([
+            {
+                $group: {
+                    _id: null,
+                    totalDeposited: { $sum: '$totalDeposited' },
+                    totalWithdrawn: { $sum: '$totalWithdrawn' },
+                    totalClub: { $sum: '$realBalances.club' },
+                    totalCashback: { $sum: '$realBalances.cashback' },
+                    totalDirect: { $sum: '$realBalances.directLevel' },
+                    totalCount: { $sum: 1 }
+                }
+            }
+        ]);
+        const agg = aggResult || { totalDeposited: 0, totalWithdrawn: 0, totalClub: 0, totalCashback: 0, totalDirect: 0, totalCount: 0 };
+
+        // Today's turnover (approx: total deposited for simplicity)
+        const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+        const [todayAgg] = await User.aggregate([
+            { $match: { updatedAt: { $gte: todayStart } } },
+            { $group: { _id: null, total: { $sum: '$totalDeposited' } } }
+        ]);
+        const todayTurnover = todayAgg?.total || 0;
+
+        const totalUsers = agg.totalCount;
+        const netFlow = agg.totalDeposited - agg.totalWithdrawn;
+        const sustainabilityRatio = agg.totalDeposited > 0
+            ? ((netFlow / agg.totalDeposited) * 100).toFixed(1)
+            : '100.0';
+
+        // Cashback phase based on user count
+        let activeRate = 50, activePhase = 'PHASE_1_GENESIS';
+        if (totalUsers >= 1000000) { activeRate = 20; activePhase = 'PHASE_3_MATURITY'; }
+        else if (totalUsers >= 100000) { activeRate = 35; activePhase = 'PHASE_2_GROWTH'; }
+
+        const houseEdge = agg.totalDeposited * 0.10; // ~10% sustainability fee pool
+        const jackpotPool = agg.totalDeposited * 0.05;
+
+        res.json({
+            status: 'success',
+            data: {
+                turnover: {
+                    today: todayTurnover,
+                    total: agg.totalDeposited,
+                    deposited: agg.totalDeposited,
+                    withdrawn: agg.totalWithdrawn,
+                    withdrawalCount: 0,
+                    netFlow
+                },
+                pools: {
+                    clubPool: agg.totalClub,
+                    cashbackPool: agg.totalCashback,
+                    directPool: agg.totalDirect,
+                    jackpotPool,
+                    houseEdge,
+                    sustainabilityFees: houseEdge
+                },
+                rates: {
+                    cashbackPhase1: 50,
+                    cashbackPhase2: 35,
+                    cashbackPhase3: 20,
+                    activeRate,
+                    activePhase,
+                    referralMultiplierCap: 8,
+                    sustainabilityFeePercent: 10,
+                    maxDailyWithdrawal: 5000
+                },
+                users: {
+                    total: totalUsers,
+                    phaseThreshold100k: 100000,
+                    phaseThreshold1M: 1000000
+                },
+                health: {
+                    sustainabilityRatio,
+                    healthStatus: parseFloat(sustainabilityRatio) > 30 ? 'OPTIMAL' : parseFloat(sustainabilityRatio) > 0 ? 'STABLE' : 'WARNING'
+                },
+                protocols: protocols.map(p => ({
+                    ...p.toObject(),
+                    lastChangedBy: p.changedBy,
+                    lastReason: p.reason
+                }))
+            }
+        });
+    } catch (error) {
+        logger.error('Economics dashboard error:', error);
+        res.status(500).json({ status: 'error', message: 'Failed to load economics data' });
+    }
+});
+
+/**
+ * GET /admin/economics/logs
+ * Returns economics protocol change logs
+ */
+router.get('/economics/logs', auth, requireAdmin, async (req, res) => {
+    try {
+        const logs = await EconomyLog.find().sort({ timestamp: -1 }).limit(100);
+        res.json({ status: 'success', data: logs });
+    } catch (error) {
+        logger.error('Economics logs error:', error);
+        res.status(500).json({ status: 'error', message: 'Failed to load logs' });
+    }
+});
+
+/**
+ * POST /admin/economics/pause
+ * Multi-sig pause for an economics node
+ */
+router.post('/economics/pause', auth, requireAdmin, async (req, res) => {
+    try {
+        const { nodes, reason } = req.body;
+        if (!nodes || !Array.isArray(nodes)) return res.status(400).json({ status: 'error', message: 'Node selection required' });
+        const adminId = req.user.id;
+        for (const nodeName of nodes) {
+            const protocol = await EconomyProtocol.findOne({ nodeName });
+            if (!protocol || protocol.status === 'PAUSED') continue;
+            if (protocol.pendingAction && protocol.pendingAction.action === 'PAUSE') {
+                if (protocol.pendingAction.approvals.some(a => a.adminId === adminId)) continue;
+                protocol.pendingAction.approvals.push({ adminId, approvedAt: new Date() });
+                if (protocol.pendingAction.approvals.length >= 2) {
+                    protocol.status = 'PAUSED'; protocol.changedBy = adminId;
+                    protocol.reason = protocol.pendingAction.reason; protocol.lastChangedAt = new Date();
+                    protocol.pendingAction = null;
+                    await EconomyLog.create({ adminId, role: req.user.role, action: 'PAUSE_ACTIVATED', affectedNodes: [nodeName], reason, ipAddress: req.ip });
+                }
+            } else {
+                protocol.pendingAction = { action: 'PAUSE', requestedBy: adminId, requestedAt: new Date(), approvals: [{ adminId, approvedAt: new Date() }], requiredApprovals: 2, reason };
+                await EconomyLog.create({ adminId, role: req.user.role, action: 'PAUSE_REQUESTED', affectedNodes: [nodeName], reason, ipAddress: req.ip });
+            }
+            protocol.markModified('pendingAction');
+            await protocol.save();
+        }
+        res.json({ status: 'success' });
+    } catch (error) {
+        res.status(500).json({ status: 'error', message: error.message });
+    }
+});
+
+/**
+ * POST /admin/economics/resume
+ * Multi-sig resume for an economics node
+ */
+router.post('/economics/resume', auth, requireAdmin, async (req, res) => {
+    try {
+        const { nodes, reason } = req.body;
+        if (!nodes || !Array.isArray(nodes)) return res.status(400).json({ status: 'error', message: 'Node selection required' });
+        const adminId = req.user.id;
+        for (const nodeName of nodes) {
+            const protocol = await EconomyProtocol.findOne({ nodeName });
+            if (!protocol || protocol.status === 'RUNNING') continue;
+            if (protocol.pendingAction && protocol.pendingAction.action === 'RESUME') {
+                if (protocol.pendingAction.approvals.some(a => a.adminId === adminId)) continue;
+                protocol.pendingAction.approvals.push({ adminId, approvedAt: new Date() });
+                if (protocol.pendingAction.approvals.length >= 2) {
+                    protocol.status = 'RUNNING'; protocol.changedBy = adminId;
+                    protocol.reason = protocol.pendingAction.reason; protocol.lastChangedAt = new Date();
+                    protocol.pendingAction = null;
+                    await EconomyLog.create({ adminId, role: req.user.role, action: 'RESUME_ACTIVATED', affectedNodes: [nodeName], reason, ipAddress: req.ip });
+                }
+            } else {
+                protocol.pendingAction = { action: 'RESUME', requestedBy: adminId, requestedAt: new Date(), approvals: [{ adminId, approvedAt: new Date() }], requiredApprovals: 2, reason };
+                await EconomyLog.create({ adminId, role: req.user.role, action: 'RESUME_REQUESTED', affectedNodes: [nodeName], reason, ipAddress: req.ip });
+            }
+            protocol.markModified('pendingAction');
+            await protocol.save();
+        }
+        res.json({ status: 'success' });
+    } catch (error) {
+        res.status(500).json({ status: 'error', message: error.message });
+    }
+});
+
+// ============================================
+// FINANCIALS DASHBOARD (reuses economics data shape)
+// ============================================
+
+/**
+ * GET /admin/financials/dashboard
+ * Treasury-focused financial data (same shape as economics)
+ */
+router.get('/financials/dashboard', auth, requireAdmin, async (req, res) => {
+    try {
+        const [aggResult] = await User.aggregate([
+            {
+                $group: {
+                    _id: null,
+                    totalDeposited: { $sum: '$totalDeposited' },
+                    totalWithdrawn: { $sum: '$totalWithdrawn' },
+                    totalClub: { $sum: '$realBalances.club' },
+                    totalCashback: { $sum: '$realBalances.cashback' },
+                    totalDirect: { $sum: '$realBalances.directLevel' },
+                    totalCount: { $sum: 1 }
+                }
+            }
+        ]);
+        const agg = aggResult || { totalDeposited: 0, totalWithdrawn: 0, totalClub: 0, totalCashback: 0, totalDirect: 0, totalCount: 0 };
+
+        const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+        const [todayAgg] = await User.aggregate([
+            { $match: { updatedAt: { $gte: todayStart } } },
+            { $group: { _id: null, total: { $sum: '$totalDeposited' } } }
+        ]);
+
+        const netFlow = agg.totalDeposited - agg.totalWithdrawn;
+        const sustainabilityRatio = agg.totalDeposited > 0
+            ? ((netFlow / agg.totalDeposited) * 100).toFixed(1) : '100.0';
+
+        const houseEdge = agg.totalDeposited * 0.10;
+        const jackpotPool = agg.totalDeposited * 0.05;
+
+        let activeRate = 50, activePhase = 'PHASE_1_GENESIS';
+        if (agg.totalCount >= 1000000) { activeRate = 20; activePhase = 'PHASE_3_MATURITY'; }
+        else if (agg.totalCount >= 100000) { activeRate = 35; activePhase = 'PHASE_2_GROWTH'; }
+
+        res.json({
+            status: 'success',
+            data: {
+                turnover: {
+                    today: todayAgg?.total || 0,
+                    total: agg.totalDeposited,
+                    deposited: agg.totalDeposited,
+                    withdrawn: agg.totalWithdrawn,
+                    netFlow
+                },
+                pools: {
+                    clubPool: agg.totalClub,
+                    cashbackPool: agg.totalCashback,
+                    directPool: agg.totalDirect,
+                    jackpot: jackpotPool,
+                    directLevel: agg.totalDirect,
+                    cashback: agg.totalCashback,
+                    houseEdge,
+                    jackpotPool
+                },
+                rates: {
+                    activeRate,
+                    activePhase,
+                    referralMultiplierCap: 8,
+                    sustainabilityFeePercent: 10,
+                    maxDailyWithdrawal: 5000,
+                    directLevel: 0.10
+                },
+                health: {
+                    sustainabilityRatio,
+                    healthStatus: parseFloat(sustainabilityRatio) > 30 ? 'OPTIMAL' : 'STABLE'
+                }
+            }
+        });
+    } catch (error) {
+        logger.error('Financials dashboard error:', error);
+        res.status(500).json({ status: 'error', message: 'Failed to load financial data' });
+    }
+});
+
+// ============================================
+// ROI / YIELD STABILIZER DASHBOARD
+// ============================================
+
+/**
+ * GET /admin/roi/dashboard
+ * ROI / cashback yield data for Yield Stabilizer page
+ */
+router.get('/roi/dashboard', auth, requireAdmin, async (req, res) => {
+    try {
+        const [aggResult] = await User.aggregate([
+            {
+                $group: {
+                    _id: null,
+                    totalDeposited: { $sum: '$totalDeposited' },
+                    totalWithdrawn: { $sum: '$totalWithdrawn' },
+                    totalCashback: { $sum: '$realBalances.cashback' },
+                    totalCount: { $sum: 1 }
+                }
+            }
+        ]);
+        const agg = aggResult || { totalDeposited: 0, totalWithdrawn: 0, totalCashback: 0, totalCount: 0 };
+
+        const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+        const todayTurnover = agg.totalDeposited * 0.05; // Approximate daily slice
+
+        // Multiplier buckets based on referral count
+        const mults = { '1x': 0, '2x': 0, '4x': 0, '8x': 0 };
+        const userMults = await User.aggregate([
+            {
+                $project: {
+                    directReferrals: { $ifNull: ['$directReferrals', 0] }
+                }
+            },
+            {
+                $group: {
+                    _id: null,
+                    mult1: { $sum: { $cond: [{ $lt: ['$directReferrals', 5] }, 1, 0] } },
+                    mult2: { $sum: { $cond: [{ $and: [{ $gte: ['$directReferrals', 5] }, { $lt: ['$directReferrals', 10] }] }, 1, 0] } },
+                    mult4: { $sum: { $cond: [{ $and: [{ $gte: ['$directReferrals', 10] }, { $lt: ['$directReferrals', 20] }] }, 1, 0] } },
+                    mult8: { $sum: { $cond: [{ $gte: ['$directReferrals', 20] }, 1, 0] } }
+                }
+            }
+        ]);
+        if (userMults[0]) {
+            mults['1x'] = userMults[0].mult1;
+            mults['2x'] = userMults[0].mult2;
+            mults['4x'] = userMults[0].mult4;
+            mults['8x'] = userMults[0].mult8;
+        }
+
+        // Eligible users = those with deposits
+        const eligibleUsers = await User.countDocuments({ totalDeposited: { $gt: 0 } });
+
+        let activePhase = 'PHASE_1_GENESIS', dailyCashbackPercent = 50;
+        if (agg.totalCount >= 1000000) { dailyCashbackPercent = 20; activePhase = 'PHASE_3_MATURITY'; }
+        else if (agg.totalCount >= 100000) { dailyCashbackPercent = 35; activePhase = 'PHASE_2_GROWTH'; }
+
+        const todaysCashbackPool = agg.totalDeposited * (dailyCashbackPercent / 100) * 0.01; // 1% of phase allocation daily
+
+        res.json({
+            status: 'success',
+            data: {
+                totalEligibleUsers: eligibleUsers,
+                totalCashbackDistributed: agg.totalCashback,
+                todaysCashbackPool,
+                dailyCashbackPercent,
+                activePhase,
+                multipliers: mults,
+                roiOnRoi: {
+                    userRecovery: agg.totalCashback * 0.5,
+                    sharedToUplines: agg.totalCashback * 0.5
+                }
+            }
+        });
+    } catch (error) {
+        logger.error('ROI dashboard error:', error);
+        res.status(500).json({ status: 'error', message: 'Failed to load ROI data' });
+    }
+});
+
+// ============================================
+// LEGAL CONTENT MANAGEMENT
+// ============================================
+
+/**
+ * GET /admin/legal
+ * Fetch all legal content types
+ */
+router.get('/legal', auth, requireAdmin, async (req, res) => {
+    try {
+        const { LegalContent } = require('../models/LegalContent');
+        const contents = await LegalContent.find().lean();
+        // Convert array to object keyed by type for frontend
+        const result = {};
+        if (Array.isArray(contents)) {
+            for (const c of contents) {
+                result[c.type] = c.content;
+            }
+        }
+        res.json({ status: 'success', data: result });
+    } catch (error) {
+        logger.error('Legal content fetch error:', error);
+        res.status(500).json({ status: 'error', message: 'Failed to load legal content' });
+    }
+});
+
+/**
+ * PUT /admin/legal/:type
+ * Update legal content by type
+ */
+router.put('/legal/:type', auth, requireAdmin, async (req, res) => {
+    try {
+        const { LegalContent } = require('../models/LegalContent');
+        const { type } = req.params;
+        const { content } = req.body;
+        await LegalContent.findOneAndUpdate(
+            { type },
+            { type, content, updatedBy: req.user.id, updatedAt: new Date() },
+            { upsert: true, new: true }
+        );
+        res.json({ status: 'success', message: 'Legal content updated' });
+    } catch (error) {
+        logger.error('Legal content update error:', error);
+        res.status(500).json({ status: 'error', message: 'Failed to update legal content' });
+    }
+});
+
+// ============================================
+// GAMES MANAGEMENT
+// ============================================
+
+/**
+ * GET /admin/games
+ * List game rounds with optional filters
+ */
+router.get('/games', auth, requireAdmin, async (req, res) => {
+    try {
+        const { page = 1, limit = 50, variant, won, userId } = req.query;
+        const pageNum = Math.max(parseInt(page, 10) || 1, 1);
+        const limitNum = Math.min(Math.max(parseInt(limit, 10) || 50, 1), 200);
+
+        const query = {};
+        if (variant) query.variant = variant;
+        if (won !== undefined) query.won = won === 'true';
+        if (userId) query.userId = userId;
+
+        const [games, total] = await Promise.all([
+            Game.find(query)
+                .populate('userId', 'walletAddress email')
+                .limit(limitNum)
+                .skip((pageNum - 1) * limitNum)
+                .sort({ createdAt: -1 })
+                .lean(),
+            Game.countDocuments(query)
+        ]);
+
+        // Get aggregate stats
+        const [statsAgg] = await Game.aggregate([
+            { $group: { _id: null, totalGames: { $sum: 1 }, totalWins: { $sum: { $cond: ['$won', 1, 0] } }, totalWagered: { $sum: '$amount' }, totalPayout: { $sum: { $cond: ['$won', '$payout', 0] } } } }
+        ]);
+        const stats = statsAgg || { totalGames: 0, totalWins: 0, totalWagered: 0, totalPayout: 0 };
+
+        res.json({
+            status: 'success',
+            data: {
+                games,
+                total,
+                totalPages: Math.ceil(total / limitNum),
+                currentPage: pageNum,
+                stats: {
+                    ...stats,
+                    houseEdge: stats.totalWagered > 0 ? (((stats.totalWagered - stats.totalPayout) / stats.totalWagered) * 100).toFixed(2) : '0.00',
+                    winRate: stats.totalGames > 0 ? ((stats.totalWins / stats.totalGames) * 100).toFixed(2) : '0.00'
+                }
+            }
+        });
+    } catch (error) {
+        logger.error('Admin games list error:', error);
+        res.status(500).json({ status: 'error', message: 'Failed to fetch game data' });
+    }
+});
+
+// ============================================
+// SYSTEM CONFIG / PRACTICE SETTINGS
+// ============================================
+
+/**
+ * GET /admin/config
+ * Fetch current system configuration
+ */
+router.get('/config', auth, requireAdmin, async (req, res) => {
+    try {
+        const config = await SystemConfig.findOne({ key: 'default' }).lean();
+        res.json({
+            status: 'success',
+            data: config || {
+                practice: { bonusAmount: 100, maxUsers: 100000, expiryDays: 30 },
+                luckyDraw: { autoEntryEnabled: false },
+                emergencyFlags: {}
+            }
+        });
+    } catch (error) {
+        logger.error('Config fetch error:', error);
+        res.status(500).json({ status: 'error', message: 'Failed to load config' });
+    }
+});
+
+/**
+ * PUT /admin/config
+ * Update system configuration
+ */
+router.put('/config', auth, requireAdmin, async (req, res) => {
+    try {
+        const updates = req.body;
+        const config = await SystemConfig.findOneAndUpdate(
+            { key: 'default' },
+            { $set: updates },
+            { upsert: true, new: true }
+        );
+        res.json({ status: 'success', data: config });
+    } catch (error) {
+        logger.error('Config update error:', error);
+        res.status(500).json({ status: 'error', message: 'Failed to update config' });
+    }
+});
+
 module.exports = router;
