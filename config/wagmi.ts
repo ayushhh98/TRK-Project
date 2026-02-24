@@ -1,23 +1,6 @@
 import { http, createConfig, cookieStorage, createStorage } from 'wagmi';
 import { bsc, bscTestnet } from 'wagmi/chains';
 import { injected, walletConnect } from 'wagmi/connectors';
-import { getMetaMaskProvider, getTrustProvider } from '@/lib/walletProviders';
-
-const metaMaskTarget = {
-    id: 'metaMask',
-    name: 'MetaMask',
-    provider(windowObj?: any) {
-        return getMetaMaskProvider(windowObj);
-    }
-};
-
-const trustTarget = {
-    id: 'trust',
-    name: 'Trust Wallet',
-    provider(windowObj?: any) {
-        return getTrustProvider(windowObj);
-    }
-};
 
 // WalletConnect Project ID (Load from Env or use public fallback)
 export const projectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID || 'c57ca95b47569778a828d19178114f4d';
@@ -27,25 +10,19 @@ let cachedConfig: ReturnType<typeof createConfig> | null = null;
 export const getWagmiConfig = () => {
     if (cachedConfig) return cachedConfig;
 
-    const isBrowser = typeof window !== 'undefined';
-    const connectors = isBrowser
-        ? [
-            // Use injected MetaMask to avoid MetaMask SDK network fetch errors.
-            injected({ target: metaMaskTarget }),
-            injected({ target: trustTarget }),
-            injected(), // Fallback for other injected wallets
-            walletConnect({
-                projectId,
-                showQrModal: false,
-                metadata: {
-                    name: 'TRK Cybernetic',
-                    description: 'TRK Blockchain Platform',
-                    url: typeof window !== 'undefined' ? window.location.origin : 'https://trk-game.com',
-                    icons: ['https://trk-game.com/icon.png']
-                }
-            }),
-        ]
-        : [];
+    const connectors = [
+        injected({ shimDisconnect: true }),
+        walletConnect({
+            projectId,
+            showQrModal: false,
+            metadata: {
+                name: 'TRK Cybernetic',
+                description: 'TRK Blockchain Platform',
+                url: 'https://trk-project.vercel.app',
+                icons: ['https://trk-project.vercel.app/logo.png']
+            }
+        }),
+    ];
 
     cachedConfig = createConfig({
         chains: [bsc, bscTestnet],

@@ -561,11 +561,14 @@ router.post('/claim', auth, async (req, res) => {
         if (io) {
             const eventPayload = {
                 id: `ref_claim_${user._id.toString()}_${Date.now()}`,
-                type: 'referral',
-                walletAddress: user.walletAddress || '',
+                type: 'REFERRAL',
+                user: {
+                    walletAddress: user.walletAddress || '',
+                    email: user.email || ''
+                },
                 amount: totalClaimable,
                 txHash: null,
-                status: 'confirmed',
+                status: 'COMPLETED',
                 createdAt: new Date().toISOString(),
                 note: 'referral_claim'
             };

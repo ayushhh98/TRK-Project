@@ -65,26 +65,21 @@ const awardReferralSignupBonus = async ({ referrerId, referredUserId, io }) => {
             timestamp: emittedAt
         });
 
-        io.emit('transaction_created', {
+        const signupEvent = {
             id: commissionRecord?._id?.toString() || `signup_${referrer._id.toString()}_${Date.now()}`,
-            type: 'referral',
-            walletAddress: referrer.walletAddress || '',
+            type: 'REFERRAL',
+            user: {
+                walletAddress: referrer.walletAddress || '',
+                email: referrer.email || ''
+            },
             amount: bonus,
             txHash: null,
-            status: 'confirmed',
+            status: 'COMPLETED',
             createdAt: commissionRecord?.createdAt || emittedAt,
             note: 'signup_bonus'
-        });
-        io.emit('referral_commission_created', {
-            id: commissionRecord?._id?.toString() || `signup_${referrer._id.toString()}_${Date.now()}`,
-            type: 'referral',
-            walletAddress: referrer.walletAddress || '',
-            amount: bonus,
-            txHash: null,
-            status: 'confirmed',
-            createdAt: commissionRecord?.createdAt || emittedAt,
-            note: 'signup_bonus'
-        });
+        };
+        io.emit('transaction_created', signupEvent);
+        io.emit('referral_commission_created', signupEvent);
     }
 
     return { awarded: true, bonus };

@@ -93,9 +93,14 @@ const requirePermission = (...permissions) => {
 };
 
 /**
- * Require admin role (admin or superadmin)
+ * Role Definitions & Mapping
  */
-const requireAdmin = requireRole('admin', 'superadmin');
+const ADMIN_ROLES = ['admin', 'superadmin', 'finance_admin', 'compliance_admin', 'support_admin', 'tech_admin'];
+
+/**
+ * Require admin role (any admin type)
+ */
+const requireAdmin = requireRole(...ADMIN_ROLES);
 
 /**
  * Require superadmin role only
@@ -137,11 +142,40 @@ const requireRoleOrPermission = (roles, permissions) => {
         });
     };
 };
+/**
+ * IP Whitelisting Middleware for Admin Routes
+ */
+const requireIpWhitelist = (req, res, next) => {
+    const whitelistedIps = process.env.ADMIN_WHITELISTED_IPS ? process.env.ADMIN_WHITELISTED_IPS.split(',') : [];
+
+    if (process.env.NODE_ENV === 'development' && whitelistedIps.length === 0) {
+        return next();
+    }
+
+    if (whitelistedIps.length === 0 && (req.ip === '::1' || req.ip === '127.0.0.1')) {
+        return next();
+    }
+
+    const clientIp = req.ip || req.connection.remoteAddress;
+
+    if (whitelistedIps.some(ip => clientIp.includes(ip))) {
+        return next();
+    }
+
+    logger.warn(`Admin access blocked: Unauthorized IP ${clientIp} for user ${req.user?._id}`);
+
+    return res.status(403).json({
+        status: 'error',
+        code: 'UNAUTHORIZED_IP',
+        message: 'Access denied: Your IP address is not whitelisted for administrative access'
+    });
+};
 
 module.exports = {
     requireRole,
     requirePermission,
     requireAdmin,
     requireSuperAdmin,
-    requireRoleOrPermission
+    requireRoleOrPermission,
+    requireIpWhitelist
 };

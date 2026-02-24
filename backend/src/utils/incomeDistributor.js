@@ -40,23 +40,18 @@ const getUnlockedLevels = (directReferrals) => {
 const ensureRealBalances = (user) => {
     if (!user.realBalances) {
         user.realBalances = {
-            cash: 0,
             game: 0,
-            cashback: 0,
-            lucky: 0,
+            cashbackROI: 0,
+            luckyDrawWallet: 0,
             directLevel: 0,
             winners: 0,
-            roiOnRoi: 0,
-            club: 0,
-            teamWinners: 0,
-            walletBalance: 0,
-            luckyDrawWallet: 0
+            cash: 0
         };
         return;
     }
     if (typeof user.realBalances.directLevel !== 'number') user.realBalances.directLevel = 0;
     if (typeof user.realBalances.winners !== 'number') user.realBalances.winners = 0;
-    if (typeof user.realBalances.teamWinners !== 'number') user.realBalances.teamWinners = 0;
+    if (typeof user.realBalances.cashbackROI !== 'number') user.realBalances.cashbackROI = 0;
 };
 
 const emitAdminReferralTransaction = (payload) => {
@@ -65,6 +60,7 @@ const emitAdminReferralTransaction = (payload) => {
         if (!io) return;
         io.emit('transaction_created', payload);
         io.emit('referral_commission_created', payload);
+        io.emit('admin:commission_activity', payload);
     } catch (error) {
         // Avoid breaking commission distribution due to socket issues.
     }
@@ -120,12 +116,15 @@ const distributeDepositCommissions = async (userId, depositAmount) => {
 
                         emitAdminReferralTransaction({
                             id: commissionRecord._id.toString(),
-                            type: 'referral',
-                            walletAddress: upline.walletAddress || '',
+                            type: 'REFERRAL',
+                            user: {
+                                walletAddress: upline.walletAddress || '',
+                                email: upline.email || ''
+                            },
                             fromWallet: currentUser.walletAddress || '',
                             amount: commission,
                             txHash: null,
-                            status: 'confirmed',
+                            status: 'COMPLETED',
                             createdAt: commissionRecord.createdAt,
                             note: `deposit_commission_l${currentLevel}`
                         });
@@ -159,7 +158,7 @@ const distributeWinnerCommissions = async (winnerId, winAmount) => {
                     const commission = winAmount * rate;
                     ensureRealBalances(upline);
                     upline.rewardPoints += commission;
-                    upline.realBalances.teamWinners += commission;
+                    upline.realBalances.winners += commission;
                     await upline.save();
 
                     // Notify User of balance change
@@ -169,7 +168,7 @@ const distributeWinnerCommissions = async (winnerId, winAmount) => {
                             type: 'commission',
                             commissionType: 'winner',
                             amount: commission,
-                            newBalance: upline.realBalances.teamWinners
+                            newBalance: upline.realBalances.winners
                         });
                     }
 
@@ -188,12 +187,15 @@ const distributeWinnerCommissions = async (winnerId, winAmount) => {
 
                         emitAdminReferralTransaction({
                             id: commissionRecord._id.toString(),
-                            type: 'referral',
-                            walletAddress: upline.walletAddress || '',
+                            type: 'REFERRAL',
+                            user: {
+                                walletAddress: upline.walletAddress || '',
+                                email: upline.email || ''
+                            },
                             fromWallet: currentUser.walletAddress || '',
                             amount: commission,
                             txHash: null,
-                            status: 'confirmed',
+                            status: 'COMPLETED',
                             createdAt: commissionRecord.createdAt,
                             note: `winner_commission_l${currentLevel}`
                         });

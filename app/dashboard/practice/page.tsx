@@ -37,8 +37,6 @@ export default function PracticeGamePage() {
 
     const games = [
         { id: 'dice', name: 'Dice 6X', desc: 'Predict & Win 600%', icon: Dices, color: 'text-primary', bg: 'bg-primary/10' },
-        // { id: 'spin', name: 'Neon Spin', desc: 'Quantum Luck Wheel', icon: Disc, color: 'text-purple-500', bg: 'bg-purple-500/10' },
-        // { id: 'guess', name: 'Number Guess', desc: 'Safe 1-10 Prediction', icon: HelpCircle, color: 'text-cyan-400', bg: 'bg-cyan-400/10' },
     ];
 
     return (
@@ -264,10 +262,9 @@ export default function PracticeGamePage() {
                         >
                             <div className="grid lg:grid-cols-12 gap-10">
                                 <div className="lg:col-span-12 space-y-12">
-                                    {selectedGame === 'dice' && <PracticeGame />}
-                                    {/* {selectedGame === 'spin' && <NeonSpin />} */}
-                                    {/* {selectedGame === 'matrix' && <ProbabilityMatrix />} */}
-                                    {/* {selectedGame === 'guess' && <NumberGuessGame />} */}
+                                    {selectedGame === 'dice' && (
+                                        <PracticeGame variant={selectedGame as any} />
+                                    )}
 
                                     {/* Universal Bet History */}
                                     <div className="pt-20 border-t border-white/5">

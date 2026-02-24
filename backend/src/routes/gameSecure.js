@@ -90,6 +90,15 @@ router.post('/bet/commit', auth, antiReplayCommit, requireCaptchaIfSuspicious, a
             }
         }
 
+        // Add roundNumber for 'guess' variant
+        if (betData.gameVariant === 'guess') {
+            let round = await GuessRound.getCurrentRound();
+            if (!round) {
+                round = await GuessRound.startNewRound(3600);
+            }
+            betData.roundNumber = round.roundNumber;
+        }
+
         // Generate server seed and hash it
         const serverSeed = generateServerSeed();
         const serverSeedHash = hashSeed(serverSeed);
@@ -312,7 +321,8 @@ router.post('/bet/reveal', auth, async (req, res) => {
             multiplier: outcome.multiplier,
             // Add provably fair verification data
             serverSeedHash: commitment.serverSeedHash,
-            nonce: commitment.nonce
+            nonce: commitment.nonce,
+            roundNumber: commitment.betData.roundNumber
         });
 
         await game.save();

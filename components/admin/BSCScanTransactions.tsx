@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/Input";
 import { AnimatePresence, motion } from "framer-motion";
+import { useAdminSocket } from "@/hooks/useAdminSocket";
 
 interface Transaction {
     hash: string;
@@ -35,6 +36,16 @@ export function BSCScanTransactions() {
         ? "https://testnet.bscscan.com"
         : "https://bscscan.com";
 
+    // Real-time synchronization hooks
+    const { connectionStatus } = useAdminSocket({
+        onTransactionUpdate: () => {
+            // Only auto-refresh if we are on the first page and not searching
+            if (page === 1 && !searchTerm) {
+                fetchData({ page: 1, silent: true });
+            }
+        }
+    });
+
     const filteredTransactions = useMemo(() => {
         const query = searchTerm.trim().toLowerCase();
         if (!query) return transactions;
@@ -55,14 +66,17 @@ export function BSCScanTransactions() {
         });
     }, [transactions, searchTerm]);
 
-    const fetchData = async (options?: { page?: number; append?: boolean }) => {
+    const fetchData = async (options?: { page?: number; append?: boolean; silent?: boolean }) => {
         const targetPage = options?.page ?? 1;
         const append = options?.append ?? false;
+        const silent = options?.silent ?? false;
 
-        if (targetPage === 1) {
-            setIsLoading(true);
-        } else {
-            setIsLoadingMore(true);
+        if (!silent) {
+            if (targetPage === 1) {
+                setIsLoading(true);
+            } else {
+                setIsLoadingMore(true);
+            }
         }
 
         try {
@@ -85,11 +99,24 @@ export function BSCScanTransactions() {
             setTransactions([]);
             setErrorMessage(error?.message || "Failed to fetch contract transactions.");
         } finally {
-            setIsLoading(false);
-            setIsLoadingMore(false);
+            if (!silent) {
+                setIsLoading(false);
+                setIsLoadingMore(false);
+            }
         }
         return false;
     };
+
+    // Autonomous Background Polling
+    useEffect(() => {
+        const intervalId = setInterval(() => {
+            if (page === 1 && !searchTerm) {
+                fetchData({ page: 1, silent: true });
+            }
+        }, 15000); // Poll every 15 seconds (typical BSC block time is ~3s, 15s provides a good balance)
+
+        return () => clearInterval(intervalId);
+    }, [page, searchTerm]);
 
     useEffect(() => {
         fetchData({ page: 1 });
@@ -148,10 +175,18 @@ export function BSCScanTransactions() {
                             <CardTitle className="text-lg font-display font-bold text-white uppercase tracking-wider mb-1">
                                 Contract Ledger
                             </CardTitle>
-                            <p className="text-[10px] text-white/40 uppercase tracking-widest font-medium flex items-center gap-2">
-                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.6)]" />
-                                Live Blockchain Sync
-                            </p>
+                            <div className="flex items-center gap-3">
+                                <p className="text-[10px] text-white/40 uppercase tracking-widest font-medium flex items-center gap-2">
+                                    <span className={cn(
+                                        "w-1.5 h-1.5 rounded-full shadow-[0_0_8px_rgba(16,185,129,0.6)]",
+                                        connectionStatus === 'connected' ? "bg-emerald-500 animate-pulse" : "bg-amber-500"
+                                    )} />
+                                    Live Blockchain Sync
+                                </p>
+                                <span className="text-[9px] text-emerald-500/50 uppercase font-black bg-emerald-500/10 px-2 py-0.5 rounded-md border border-emerald-500/20">
+                                    Auto-Updating
+                                </span>
+                            </div>
                         </div>
                     </div>
                     <div className="flex items-center gap-3 w-full md:w-auto mt-4 md:mt-0">

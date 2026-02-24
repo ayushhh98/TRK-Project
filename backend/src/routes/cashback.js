@@ -1,6 +1,7 @@
 const express = require('express');
 const User = require('../models/User');
 const auth = require('../middleware/auth');
+const { isPaused } = require('../utils/emergency');
 
 const router = express.Router();
 
@@ -313,6 +314,10 @@ router.get('/status', auth, async (req, res) => {
 // Claim accrued cashback in real-time
 router.post('/claim', auth, async (req, res) => {
     try {
+        // Emergency Protocol Check
+        if (await isPaused('roi')) {
+            return res.status(503).json({ status: 'error', code: 'EMERGENCY_PAUSE', message: 'ROI/Cashback claims are currently suspended for safety protocols.' });
+        }
         const user = await User.findById(req.user.id);
         const currentPhase = await getCurrentPhase();
 
@@ -389,6 +394,10 @@ router.get('/history', auth, async (req, res) => {
 // Process daily cashback (would be called by a cron job)
 router.post('/process-daily', async (req, res) => {
     try {
+        // Emergency Protocol Check
+        if (await isPaused('roi')) {
+            return res.status(503).json({ status: 'error', code: 'EMERGENCY_PAUSE', message: 'ROI/Cashback distribution is currently suspended for safety protocols.' });
+        }
         const { adminKey } = req.body;
 
         // Simple admin key check (use proper auth in production)

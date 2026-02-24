@@ -37,7 +37,8 @@ export default function DashboardPage() {
         isConnected, address, user, practiceBalance, practiceExpiry,
         gameHistory, disconnect, isLoading, isRegisteredOnChain, registerOnChain,
         nativeBalance, usdtBalance, isRealMode, setIsRealMode, realBalances,
-        refreshUser, linkWallet, deposit, isSwitchingWallet, hasRealAccess
+        refreshUser, linkWallet, deposit, isSwitchingWallet, hasRealAccess,
+        systemConfig, isConfigLoading
     } = useWallet();
 
     const [isDepositOpen, setIsDepositOpen] = useState(false);
@@ -140,6 +141,15 @@ export default function DashboardPage() {
                                     </h1>
                                     <div className="flex items-center gap-3 mt-2">
                                         <p className="text-white/50">{displayAddress}</p>
+                                        <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-white/5 border border-white/10">
+                                            <div className={cn(
+                                                "h-1.5 w-1.5 rounded-full animate-pulse",
+                                                systemConfig ? "bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.5)]" : "bg-zinc-600"
+                                            )} />
+                                            <span className="text-[9px] font-black uppercase tracking-widest text-white/30">
+                                                {systemConfig ? "System Link Active" : "Syncing Protocol..."}
+                                            </span>
+                                        </div>
                                         <ProfileModal asChild>
                                             <button className="px-3 py-1 rounded-full bg-white/5 border border-white/10 hover:bg-white/10 text-[10px] font-black uppercase tracking-widest text-white/60 hover:text-white transition-colors flex items-center gap-1.5">
                                                 <User className="h-3 w-3" />
@@ -262,10 +272,14 @@ export default function DashboardPage() {
                             </div>
                             <Button
                                 onClick={() => setIsDepositOpen(true)}
-                                className="bg-amber-500 text-black hover:bg-amber-400 font-black uppercase text-xs px-6 h-10 rounded-xl whitespace-nowrap"
+                                disabled={systemConfig?.emergencyFlags?.pauseDeposits}
+                                className={cn(
+                                    "bg-amber-500 text-black hover:bg-amber-400 font-black uppercase text-xs px-6 h-10 rounded-xl whitespace-nowrap",
+                                    systemConfig?.emergencyFlags?.pauseDeposits && "opacity-50 cursor-not-allowed bg-zinc-800 text-white/40"
+                                )}
                             >
                                 <Wallet className="h-4 w-4 mr-2" />
-                                Make Deposit
+                                {systemConfig?.emergencyFlags?.pauseDeposits ? "Deposits Paused" : "Make Deposit"}
                             </Button>
                         </motion.div>
                     )

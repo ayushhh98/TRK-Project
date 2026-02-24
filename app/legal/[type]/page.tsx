@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/Button";
 import { ArrowLeft, ShieldCheck, FileText, Calendar, AlertTriangle } from "lucide-react";
 import Link from "next/link";
 import { motion } from "framer-motion";
+import { getApiBase } from "@/lib/api";
 
 const TYPE_MAP: Record<string, string> = {
     terms: "Terms of Service",
@@ -39,7 +40,7 @@ export default function LegalPage() {
                 if (type === 'cookies') apiType = 'cookie_policy';
                 if (type === 'risk') apiType = 'risk_disclaimer';
 
-                const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'}/api/content/legal/${apiType}`);
+                const res = await fetch(`${getApiBase()}/api/content/legal/${apiType}`);
                 if (!res.ok) throw new Error("Failed to fetch");
 
                 const data = await res.json();

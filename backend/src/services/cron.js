@@ -91,7 +91,7 @@ const startCronJobs = (io) => {
                     const luckyDrawFunding = dailyCashback * 0.20;
                     const netCashback = dailyCashback - luckyDrawFunding;
 
-                    user.realBalances.cashback += netCashback;
+                    user.realBalances.cashbackROI = (user.realBalances.cashbackROI || 0) + netCashback;
                     user.realBalances.luckyDrawWallet = (user.realBalances.luckyDrawWallet || 0) + luckyDrawFunding;
 
                     await user.save();

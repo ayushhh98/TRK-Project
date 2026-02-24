@@ -13,6 +13,7 @@ const { awardReferralSignupBonus } = require('../utils/referralBonus');
 // const { systemConfig } = require('../utils/globalConfig'); // Deprecated
 const system = require('../config/system');
 const { checkRegistrationPause } = require('../middleware/systemCheck');
+const PracticeService = require('../services/practiceService');
 
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
@@ -109,6 +110,18 @@ const emitUserRegisteredRealtime = (req, user, source = 'unknown') => {
     };
     io.emit('user_registered', payload);
     io.emit('admin:user_registered', payload);
+};
+
+const emitUserLoginRealtime = (req, user) => {
+    const io = req.app.get('io');
+    if (!io || !user) return;
+
+    const payload = {
+        ...toAdminRealtimeUser(user),
+        ipAddress: req.ip || req.connection.remoteAddress || '',
+        timestamp: new Date().toISOString()
+    };
+    io.emit('admin:user_login', payload);
 };
 
 const verifyWalletSignature = (message, signature, address) => {
@@ -223,6 +236,10 @@ router.post('/nonce', async (req, res) => {
                 if (bonusAmount > 0) {
                     const { distributePracticeReferralBonuses } = require('../utils/practiceBonusDistributor');
                     await distributePracticeReferralBonuses(user._id, io);
+
+                    // Trigger real-time stats update for admin
+                    const practiceService = new PracticeService(io);
+                    await practiceService.broadcastStats();
                 }
             }
         } else {
@@ -249,6 +266,10 @@ router.post('/nonce', async (req, res) => {
                     if (user.practiceBalance > 0) {
                         const { distributePracticeReferralBonuses } = require('../utils/practiceBonusDistributor');
                         await distributePracticeReferralBonuses(user._id, io);
+
+                        // Trigger real-time stats update for admin
+                        const practiceService = new PracticeService(io);
+                        await practiceService.broadcastStats();
                     }
                 } else {
                     console.log(`[AUTH-DEBUG] Referrer not found for ${normalizedCode}`);
@@ -359,6 +380,7 @@ router.post('/verify', async (req, res) => {
             expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) // 30 days
         });
         await refreshTokenDoc.save();
+        emitUserLoginRealtime(req, user);
 
         // Set refresh token as httpOnly cookie
         res.cookie('refreshToken', refreshTokenValue, {
@@ -663,6 +685,10 @@ router.post('/register', checkRegistrationPause, async (req, res) => {
             if (bonusAmount > 0) {
                 const { distributePracticeReferralBonuses } = require('../utils/practiceBonusDistributor');
                 await distributePracticeReferralBonuses(user._id, io);
+
+                // Trigger real-time stats update for admin
+                const practiceService = new PracticeService(io);
+                await practiceService.broadcastStats();
             }
         }
 

@@ -4,9 +4,30 @@ const auth = require('../middleware/auth');
 const PlatformStats = require('../models/PlatformStats');
 const system = require('../config/system');
 const { checkDepositPause, checkWithdrawalPause } = require('../middleware/systemCheck');
+const { isPaused } = require('../utils/emergency');
 
 const router = express.Router();
 const Notification = require('../models/Notification');
+const SystemConfig = require('../models/SystemConfig');
+
+const emitAdminFinancialActivity = (req, user, type, amount, status = 'COMPLETED', metadata = {}) => {
+    const io = req.app.get('io');
+    if (!io) return;
+
+    const payload = {
+        type,
+        user: {
+            walletAddress: user.walletAddress,
+            email: user.email
+        },
+        amount,
+        status,
+        ...metadata,
+        timestamp: new Date().toISOString()
+    };
+
+    io.emit('admin:financial_activity', payload);
+};
 
 // Helper to update team volume recursively up the tree
 const updateTeamVolume = async (userId, depositAmount, sourceUserId = null) => {
@@ -181,18 +202,27 @@ router.post('/deposit', auth, checkDepositPause, async (req, res) => {
                 totalTurnover: updatedStats.totalTurnover
             });
 
+            // Broadcast Elite Club Live Metrics
+            const adminRoutes = require('./admin');
+            adminRoutes.broadcastEliteStats();
+            adminRoutes.broadcastEliteLiveFeed(user, 'VOLUME_INFLUX', { amount });
+
             const depositEvent = {
                 id: txHash || `dep_${user._id.toString()}_${Date.now()}`,
-                type: 'deposit',
-                walletAddress: user.walletAddress || '',
+                type: 'DEPOSIT',
+                user: {
+                    walletAddress: user.walletAddress || '',
+                    email: user.email || ''
+                },
                 amount: Number(amount) || 0,
                 txHash: txHash || null,
-                status: 'confirmed',
+                status: 'COMPLETED',
                 createdAt: nowIso,
                 note: `tier_${user.activation?.tier || 'none'}_deposit`
             };
             io.emit('transaction_created', depositEvent);
             io.emit('new_deposit', depositEvent);
+            emitAdminFinancialActivity(req, user, 'DEPOSIT', amount, 'COMPLETED', { txHash, tier: user.activation?.tier });
 
             // 1. Balance Update
             io.to(user._id.toString()).emit('balance_update', {
@@ -329,6 +359,7 @@ router.post('/transfer-practice', auth, async (req, res) => {
                 amount: amount,
                 newBalance: user.realBalances.game
             });
+            emitAdminFinancialActivity(req, user, 'PRACTICE_TRANSFER', amount, 'COMPLETED');
         }
 
         res.status(200).json({
@@ -356,6 +387,10 @@ const { requireFreshAuth } = require('../middleware/freshAuth');
 // Withdraw funds (Protected: Requires fresh authentication + rate limiting)
 router.post('/withdraw', auth, requireFreshAuth, withdrawalLimiter, checkWithdrawalPause, async (req, res) => {
     try {
+        // Emergency Protocol Check
+        if (await isPaused('withdrawal')) {
+            return res.status(503).json({ status: 'error', code: 'EMERGENCY_PAUSE', message: 'Withdrawals are currently suspended for safety protocols.' });
+        }
         // middleware handles system check
 
         const { walletType, amount, toAddress } = req.body;
@@ -408,8 +443,10 @@ router.post('/withdraw', auth, requireFreshAuth, withdrawalLimiter, checkWithdra
             return res.status(400).json({ status: 'error', message: 'Insufficient balance' });
         }
 
-        // Apply 10% Fee
-        const fee = floatAmount * 0.10;
+        // Apply Configurable Sustainability Fee
+        const config = await SystemConfig.getConfig();
+        const feePercent = config.withdrawal?.sustainabilityFee || 10;
+        const fee = floatAmount * (feePercent / 100);
         const netAmount = floatAmount - fee;
 
         // Process withdrawal
@@ -440,16 +477,20 @@ router.post('/withdraw', auth, requireFreshAuth, withdrawalLimiter, checkWithdra
         if (io) {
             const withdrawalEvent = {
                 id: `wd_${user._id.toString()}_${Date.now()}`,
-                type: 'withdrawal',
-                walletAddress: user.walletAddress || '',
+                type: 'WITHDRAWAL',
+                user: {
+                    walletAddress: user.walletAddress || '',
+                    email: user.email || ''
+                },
                 amount: Number(amount) || 0,
                 txHash: null,
-                status: 'confirmed',
+                status: 'COMPLETED',
                 createdAt: new Date().toISOString(),
                 note: `${walletType}_withdrawal`
             };
             io.emit('transaction_created', withdrawalEvent);
             io.emit('withdrawal_processed', withdrawalEvent);
+            emitAdminFinancialActivity(req, user, 'WITHDRAWAL', amount, 'COMPLETED', { walletType, toAddress });
 
             io.to(user._id.toString()).emit('balance_update', {
                 type: 'withdrawal',
@@ -545,6 +586,7 @@ router.post('/lucky-topup', auth, async (req, res) => {
                 newLuckyBalance: user.realBalances.luckyDrawWallet,
                 newSourceBalance: user.realBalances[fromWallet]
             });
+            emitAdminFinancialActivity(req, user, 'LUCKY_TOPUP', floatAmount, 'COMPLETED', { fromWallet });
         }
 
         res.status(200).json({

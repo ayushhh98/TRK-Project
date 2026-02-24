@@ -2,9 +2,10 @@
 
 import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Terminal, Cpu, Wifi, Activity, Play, ShieldAlert, Command } from "lucide-react";
+import { Terminal, Cpu, Wifi, Activity, Play, ShieldAlert, Command, ShieldCheck, Zap, Globe, Lock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/Button";
+import { useSocket } from "@/components/providers/Web3Provider";
 
 interface LogEntry {
     id: string;
@@ -12,8 +13,6 @@ interface LogEntry {
     type: 'system' | 'network' | 'user' | 'warning' | 'success';
     message: string;
 }
-
-import { useSocket } from "@/components/providers/Web3Provider";
 
 export function CyberneticTerminal() {
     const socket = useSocket();
@@ -83,7 +82,6 @@ export function CyberneticTerminal() {
         socket.on('live_activity', handleLiveActivity);
         socket.on('chat_message', handleChatMessage);
 
-        // Connection status logs
         socket.on('connect', () => {
             addLog('success', 'Secure Uplink Established (Socket.IO)');
         });
@@ -107,7 +105,6 @@ export function CyberneticTerminal() {
         const cmd = input.trim().toLowerCase();
         addLog('user', `> ${input}`);
 
-        // Basic Command Parsing
         if (cmd === '/clear') {
             setLogs([]);
         } else if (cmd === '/status') {
@@ -117,9 +114,6 @@ export function CyberneticTerminal() {
             const text = input.slice(5).trim();
             if (text && socket) {
                 socket.emit('send_chat', { text });
-                // We'll see our own message through the broadcast if the server supports it,
-                // or we add it locally for instant feedback if not.
-                // addLog('user', `[YOU]: ${text}`);
             }
         } else if (cmd === '/help') {
             addLog('system', 'Available commands: /clear, /status, /msg <text>, /help');
@@ -132,40 +126,55 @@ export function CyberneticTerminal() {
 
     return (
         <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="w-full h-full flex flex-col bg-black/95 border border-primary/20 rounded-[2.5rem] overflow-hidden relative group font-mono text-sm shadow-[0_0_50px_rgba(0,0,0,0.8)] transition-all duration-500 hover:border-primary/40"
+            initial={{ opacity: 0, scale: 0.98 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="w-full h-full flex flex-col bg-black border border-white/10 rounded-[2.5rem] overflow-hidden relative group font-mono text-sm shadow-2xl transition-all duration-500 hover:border-blue-500/30"
         >
-            {/* Scanlines Overlay */}
-            <div className="absolute inset-0 pointer-events-none z-20 bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.25)_50%),linear-gradient(90deg,rgba(255,0,0,0.06),rgba(0,255,0,0.02),rgba(0,0,255,0.06))] bg-[length:100%_2px,3px_100%] opacity-20" />
+            {/* Background Grain & Scanlines */}
+            <div className="absolute inset-0 z-0 pointer-events-none opacity-[0.03] bg-[url('https://grainy-gradients.vercel.app/noise.svg')]" />
+            <div className="absolute inset-0 pointer-events-none z-20 bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.1)_50%),linear-gradient(90deg,rgba(255,0,0,0.02),rgba(0,255,0,0.01),rgba(0,0,255,0.02))] bg-[length:100%_4px,3px_100%] opacity-40 group-hover:opacity-60 transition-opacity" />
+
+            {/* Subtle Screen Flicker Effect */}
+            <div className="absolute inset-0 pointer-events-none z-20 bg-blue-500/[0.01] animate-pulse" />
 
             {/* Header / Tabs */}
-            <div className="flex items-center justify-between px-6  py-4 bg-white/5 border-b border-white/10 relative z-30">
-                <div className="flex items-center gap-4">
-                    <div className="flex gap-1.5">
-                        <div className="w-3 h-3 rounded-full bg-red-500/20 border border-red-500/50" />
-                        <div className="w-3 h-3 rounded-full bg-yellow-500/20 border border-yellow-500/50" />
-                        <div className="w-3 h-3 rounded-full bg-green-500/20 border border-green-500/50" />
+            <div className="flex items-center justify-between px-8 py-5 bg-white/[0.02] border-b border-white/5 relative z-30">
+                <div className="flex items-center gap-5">
+                    <div className="flex gap-2">
+                        <div className="w-2.5 h-2.5 rounded-full bg-red-500/40 border border-red-500/20 shadow-[0_0_8px_rgba(239,68,68,0.3)]" />
+                        <div className="w-2.5 h-2.5 rounded-full bg-amber-500/40 border border-amber-500/20 shadow-[0_0_8px_rgba(245,158,11,0.3)]" />
+                        <div className="w-2.5 h-2.5 rounded-full bg-emerald-500/40 border border-emerald-500/20 shadow-[0_0_8px_rgba(16,185,129,0.3)]" />
                     </div>
-                    <div className="h-6 w-px bg-white/10" />
+
+                    <div className="h-4 w-px bg-white/10" />
+
                     <div className="flex items-center gap-3">
-                        <Terminal className="w-5 h-5 text-primary animate-pulse" />
+                        <div className="h-8 w-8 rounded-lg bg-blue-500/10 border border-blue-500/20 flex items-center justify-center">
+                            <Terminal className="w-4 h-4 text-blue-400 group-hover:animate-pulse" />
+                        </div>
                         <div>
-                            <div className="text-primary font-black tracking-[0.2em] text-[10px] uppercase">TRK_CORE_TERMINAL</div>
-                            <div className="text-[8px] text-white/20 font-mono tracking-widest uppercase">SYSLOG_STREAM.V2.4.0</div>
+                            <div className="flex items-center gap-2">
+                                <span className="text-white font-black tracking-[0.15em] text-[11px] uppercase">TRK_CORE_TERMINAL</span>
+                                <span className="px-1.5 py-0.5 rounded-sm bg-blue-500/10 border border-blue-500/20 text-[8px] font-black text-blue-400 uppercase tracking-widest animate-pulse">
+                                    Active_Link
+                                </span>
+                            </div>
+                            <div className="text-[9px] text-white/30 font-mono tracking-widest uppercase mt-0.5 flex items-center gap-2">
+                                <Globe className="h-2 w-2" /> Node: Mainnet_Sec_04
+                            </div>
                         </div>
                     </div>
                 </div>
 
-                <div className="flex items-center gap-2 bg-black/40 rounded-lg p-1 border border-white/5">
+                <div className="flex items-center gap-1 bg-white/[0.03] rounded-xl p-1 border border-white/10">
                     {(['LIVE', 'SYSTEM', 'NET'] as const).map((tab) => (
                         <button
                             key={tab}
                             onClick={() => setActiveTab(tab)}
                             className={cn(
-                                "px-3 py-1 text-[10px] font-bold rounded-md transition-all",
+                                "px-4 py-1.5 text-[9px] font-black uppercase tracking-widest rounded-lg transition-all",
                                 activeTab === tab
-                                    ? "bg-primary text-black shadow-[0_0_10px_rgba(var(--primary),0.3)]"
+                                    ? "bg-white text-black shadow-lg scale-[1.02]"
                                     : "text-white/40 hover:text-white hover:bg-white/5"
                             )}
                         >
@@ -178,60 +187,90 @@ export function CyberneticTerminal() {
             {/* Main Log Area */}
             <div
                 ref={scrollRef}
-                className="flex-1 overflow-y-auto p-6 space-y-2 relative z-10 scrollbar-hide"
+                className="flex-1 overflow-y-auto p-8 space-y-3 relative z-10 scrollbar-hide bg-[rgba(0,0,0,0.2)]"
             >
                 <AnimatePresence initial={false}>
                     {logs.map((log) => (
                         <motion.div
                             key={log.id}
-                            initial={{ opacity: 0, x: -10 }}
-                            animate={{ opacity: 1, x: 0 }}
-                            className="flex items-start gap-3 text-xs md:text-sm group/log"
+                            initial={{ opacity: 0, x: -10, filter: "blur(4px)" }}
+                            animate={{ opacity: 1, x: 0, filter: "blur(0px)" }}
+                            className="flex items-start gap-4 text-xs group/log"
                         >
-                            <span className="text-white/30 shrink-0 font-mono select-none w-14">{log.timestamp}</span>
+                            <span className="text-white/20 shrink-0 font-mono select-none w-14 text-[10px] mt-0.5">[{log.timestamp}]</span>
 
-                            <span className={cn(
-                                "shrink-0 font-bold",
-                                log.type === 'system' && "text-blue-400",
-                                log.type === 'network' && "text-purple-400",
-                                log.type === 'user' && "text-white",
-                                log.type === 'success' && "text-green-400",
-                                log.type === 'warning' && "text-orange-400",
-                            )}>
-                                [{log.type.toUpperCase()}]
-                            </span>
-
-                            <span className={cn(
-                                "text-white/70 group-hover/log:text-white transition-colors break-all",
-                                log.type === 'warning' && "text-orange-300",
-                                log.type === 'success' && "text-green-300",
-                            )}>
-                                {log.message}
-                            </span>
+                            <div className="flex flex-col gap-1 flex-1">
+                                <div className="flex items-center gap-2">
+                                    <span className={cn(
+                                        "px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-tighter border",
+                                        log.type === 'system' && "text-blue-400 bg-blue-500/10 border-blue-500/20",
+                                        log.type === 'network' && "text-purple-400 bg-purple-500/10 border-purple-500/20",
+                                        log.type === 'user' && "text-white bg-white/10 border-white/20",
+                                        log.type === 'success' && "text-emerald-400 bg-emerald-500/10 border-emerald-500/20",
+                                        log.type === 'warning' && "text-amber-400 bg-amber-500/10 border-amber-500/20",
+                                    )}>
+                                        {log.type}
+                                    </span>
+                                </div>
+                                <span className={cn(
+                                    "text-white/60 group-hover/log:text-white leading-relaxed font-medium transition-colors",
+                                    log.type === 'warning' && "text-amber-200/70",
+                                    log.type === 'success' && "text-emerald-200/70",
+                                )}>
+                                    {log.message}
+                                </span>
+                            </div>
                         </motion.div>
                     ))}
                 </AnimatePresence>
 
                 {/* Blinking Cursor at bottom */}
-                <div className="flex items-center gap-2 text-primary animate-pulse mt-4">
-                    <span>_</span>
+                <div className="flex items-center gap-2 text-blue-400 mt-6 pl-1">
+                    <div className="h-4 w-2 bg-blue-400 animate-pulse shadow-[0_0_8px_rgba(96,165,250,0.5)]" />
+                    <span className="text-[10px] font-black uppercase tracking-widest opacity-40">Awaiting_Input...</span>
                 </div>
             </div>
 
             {/* Input Area */}
-            <div className="flex items-center gap-2 px-6 py-4 border-t border-white/10 bg-black/60 relative z-30">
-                <span className="text-primary font-bold pointer-events-none">{">"}</span>
-                <form onSubmit={handleCommand} className="flex-1">
-                    <input
-                        type="text"
-                        value={input}
-                        onChange={(e) => setInput(e.target.value)}
-                        placeholder="Type command (/help)..."
-                        className="w-full bg-transparent border-none outline-none text-white font-mono text-sm placeholder:text-white/20"
-                    />
-                </form>
-                <div className="text-[9px] text-emerald-500/40 font-mono uppercase tracking-[0.2em] hidden md:block">
-                    PROT_AL_L3 // VRF_VERIFIED_SEQ
+            <div className="px-8 py-5 border-t border-white/5 bg-white/[0.01] relative z-30 group/input">
+                <div className="flex items-center gap-3">
+                    <span className="text-blue-400 font-black group-hover/input:animate-pulse">_</span>
+                    <form onSubmit={handleCommand} className="flex-1">
+                        <input
+                            type="text"
+                            value={input}
+                            onChange={(e) => setInput(e.target.value)}
+                            placeholder="CMD:// type command or /help"
+                            className="w-full bg-transparent border-none outline-none text-white font-mono text-sm placeholder:text-white/10 tracking-wide"
+                        />
+                    </form>
+
+                    <div className="flex items-center gap-4">
+                        <div className="hidden md:flex flex-col items-end">
+                            <span className="text-[8px] text-emerald-500/40 font-black uppercase tracking-[0.25em]">PROT_AL_L3</span>
+                            <span className="text-[7px] text-white/10 font-mono uppercase tracking-widest">VRF_VERIFIED_SEQ</span>
+                        </div>
+                        <div className="h-8 w-8 rounded-lg bg-white/[0.03] border border-white/10 flex items-center justify-center hover:bg-white/10 transition-colors cursor-pointer">
+                            <Command className="h-3 w-3 text-white/40" />
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {/* Bottom Status Bar */}
+            <div className="px-8 py-2 bg-blue-500/[0.02] border-t border-white/[0.02] flex items-center justify-between z-30">
+                <div className="flex items-center gap-4 text-[7px] font-black uppercase tracking-[0.3em] text-white/20">
+                    <span className="flex items-center gap-1.5">
+                        <div className="w-1 h-1 rounded-full bg-blue-500/40" />
+                        Uplink_Stat: Nominal
+                    </span>
+                    <span className="flex items-center gap-1.5 text-emerald-500/30">
+                        <ShieldAlert className="h-2 w-2" />
+                        Auth: ZKP_Verified
+                    </span>
+                </div>
+                <div className="text-[7px] text-white/10 font-mono">
+                    COORD: [42.6, 12.4, 9.8]
                 </div>
             </div>
         </motion.div>

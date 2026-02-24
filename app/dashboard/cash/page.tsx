@@ -13,7 +13,7 @@ import { BalanceAnimator } from "@/components/cash/BalanceAnimator";
 import { ConfettiEffect } from "@/components/effects/ConfettiEffect";
 import { Card, CardContent } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
-import { ArrowLeft, TrendingUp, Shield, Activity, Lock, Globe, ExternalLink, Zap, Smartphone, Landmark, Eye, EyeOff, Wallet, Repeat, Plus, CheckCircle2 } from "lucide-react";
+import { ArrowLeft, TrendingUp, Shield, Activity, Lock, Globe, ExternalLink, Zap, Smartphone, Landmark, Eye, EyeOff, Wallet, Repeat, Plus, CheckCircle2, ArrowUpRight } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { useSearchParams, useRouter } from "next/navigation";
@@ -210,68 +210,150 @@ function CashDashboardContent() {
 
                 <div className="h-px bg-white/5" />
 
-                {/* Unified Ecosystem Vault */}
+                {/* 6-Wallet System: Unified Ecosystem Vault */}
                 <div className="space-y-6">
-                    <div className="flex items-center gap-3">
-                        <div className="h-2 w-2 rounded-full bg-emerald-500" />
-                        <h2 className="text-[10px] font-black uppercase tracking-[0.4em] text-white/40">UNIFIED_ECOSYSTEM_VAULT</h2>
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                            <div className="h-2 w-2 rounded-full bg-emerald-500" />
+                            <h2 className="text-[10px] font-black uppercase tracking-[0.4em] text-white/40">6-WALLET_ECOSYSTEM_PROTOCOL</h2>
+                        </div>
+                        <div className="text-[9px] font-mono text-white/20 uppercase tracking-tighter">
+                            Total_Asset_Value: ${hideBalances ? "****" : (realBalances.grandTotal || 0).toFixed(2)} USDT
+                        </div>
                     </div>
 
-                    <Card className="border-emerald-500/20 bg-gradient-to-br from-emerald-500/10 via-transparent to-transparent rounded-[2rem] overflow-hidden group hover:border-emerald-500/40 transition-all duration-500 relative">
-                        <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-10 pointer-events-none" />
-                        <CardContent className="p-10 flex flex-col md:flex-row items-center justify-between gap-10">
-                            <div className="space-y-4 text-center md:text-left">
-                                <div className="flex items-center justify-center md:justify-start gap-4 mb-2">
-                                    <div className="p-3.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
-                                        <Zap className="h-8 w-8" />
+                    <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
+                        {/* Column 1: EXTERNAL / ON-CHAIN (Wallets 1 & 3) */}
+                        <div className="space-y-4">
+                            <h3 className="text-[9px] font-black text-white/20 uppercase tracking-[0.3em] flex items-center gap-2 px-2">
+                                <Globe className="h-3 w-3" /> ON-CHAIN_BALANCES
+                            </h3>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                {/* Wallet 1: User Main Wallet */}
+                                <Card className="bg-white/[0.02] border-white/10 p-5 rounded-2xl group/w hover:border-emerald-500/30 transition-all">
+                                    <div className="flex justify-between items-start mb-4">
+                                        <div className="p-2.5 rounded-xl bg-white/5 border border-white/10 text-white/40 group-hover/w:text-emerald-400 transition-colors">
+                                            <Wallet className="h-4 w-4" />
+                                        </div>
+                                        <span className="text-[8px] font-black text-white/20 uppercase tracking-widest border border-white/5 px-2 py-0.5 rounded">Wallet_01</span>
                                     </div>
-                                    <div className="text-left">
-                                        <div className="text-[10px] font-black uppercase tracking-[0.2em] text-white/30">Total_Asset_Value</div>
-                                        <h3 className="text-xl font-bold text-white tracking-tight">Prime Ecosystem Balance</h3>
+                                    <div className="space-y-1">
+                                        <div className="text-[9px] font-black text-white/30 uppercase tracking-widest">User_Main_External</div>
+                                        <div className="text-xl font-mono font-black text-white">
+                                            {hideBalances ? "****" : parseFloat(usdtBalance || "0").toFixed(2)} <span className="text-xs text-white/20">USDT</span>
+                                        </div>
+                                        <div className="text-[8px] font-mono text-white/20 truncate">{address || "Disconnected"}</div>
                                     </div>
-                                </div>
+                                </Card>
 
-                                <div className="text-6xl font-mono font-black text-white tracking-tighter shadow-emerald-500/20 drop-shadow-lg">
-                                    {hideBalances ? "****" : (realBalances.totalUnified || 0).toFixed(2)} <span className="text-2xl text-emerald-400">USDT</span>
-                                </div>
-
-                                <div className="grid grid-cols-1 sm:grid-cols-4 gap-6 mt-2 pt-4 border-t border-white/5">
-                                    <div className="flex flex-col">
-                                        <span className="text-[8px] font-black text-white/20 uppercase tracking-[0.2em]">Total_Deposited</span>
-                                        <span className="text-sm font-mono font-bold text-white/60">{(user?.activation?.totalDeposited || 0).toFixed(2)} USDT</span>
+                                {/* Wallet 3: BD Wallet */}
+                                <Card className="bg-white/[0.02] border-white/10 p-5 rounded-2xl group/w hover:border-blue-500/30 transition-all">
+                                    <div className="flex justify-between items-start mb-4">
+                                        <div className="p-2.5 rounded-xl bg-white/5 border border-white/10 text-white/40 group-hover/w:text-blue-400 transition-colors">
+                                            <Shield className="h-4 w-4" />
+                                        </div>
+                                        <span className="text-[8px] font-black text-white/20 uppercase tracking-widest border border-white/5 px-2 py-0.5 rounded">Wallet_03</span>
                                     </div>
-                                    <div className="flex flex-col border-white/10 sm:border-l sm:pl-6">
-                                        <span className="text-[8px] font-black text-white/20 uppercase tracking-[0.2em]">Game_Balance</span>
-                                        <span className="text-sm font-mono font-bold text-white/60">{(realBalances.game || 0).toFixed(2)} USDT</span>
+                                    <div className="space-y-1">
+                                        <div className="text-[9px] font-black text-white/30 uppercase tracking-widest">BD_System_Vault</div>
+                                        <div className="text-xl font-mono font-black text-white/40">
+                                            SECURED <span className="text-xs text-white/10">USDT</span>
+                                        </div>
+                                        <div className="text-[8px] font-mono text-white/20 truncate">0xBD_SYSTEM_CONTRACT</div>
                                     </div>
-                                    <div className="flex flex-col border-white/10 sm:border-l sm:pl-6">
-                                        <span className="text-[8px] font-black text-white/20 uppercase tracking-[0.2em]">Cash_Balance_Vault</span>
-                                        <span className="text-sm font-mono font-bold text-emerald-500/60">{(realBalances.cash || 0).toFixed(2)} USDT</span>
-                                    </div>
-                                    <div className="flex flex-col border-white/10 sm:border-l sm:pl-6">
-                                        <span className="text-[8px] font-black text-white/20 uppercase tracking-[0.2em]">External_USDT_Wallet</span>
-                                        <span className="text-sm font-mono font-bold text-cyan-400/70">{parseFloat(usdtBalance || "0").toFixed(2)} USDT</span>
-                                    </div>
-                                </div>
-
+                                </Card>
                             </div>
+                        </div>
 
-                            <div className="flex flex-col gap-3 w-full md:w-auto min-w-[200px]">
-                                <Button
-                                    onClick={handleDeposit}
-                                    className="w-full h-12 bg-emerald-500 hover:bg-emerald-400 text-black border border-emerald-500/20 font-black text-xs uppercase tracking-widest rounded-xl transition-all shadow-[0_0_20px_rgba(16,185,129,0.3)] hover:scale-105 active:scale-95"
-                                >
-                                    DEPOSIT_USDT
-                                </Button>
-                                <Button
-                                    onClick={() => setIsWithdrawOpen(true)}
-                                    className="w-full h-12 bg-white/5 hover:bg-white/10 text-white border border-white/10 font-black text-xs uppercase tracking-widest rounded-xl transition-all"
-                                >
-                                    WITHDRAW_FUNDS
-                                </Button>
+                        {/* Column 2: INTERNAL / PROTOCOL (Wallets 2, 4, 5, 6) */}
+                        <div className="space-y-4">
+                            <h3 className="text-[9px] font-black text-white/20 uppercase tracking-[0.3em] flex items-center gap-2 px-2">
+                                <Zap className="h-3 w-3" /> INTERNAL_LEDGER
+                            </h3>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-2 gap-4">
+                                {/* Wallet 2: Game Wallet */}
+                                <Card className="bg-white/[0.02] border-white/10 p-5 rounded-2xl group/w hover:border-amber-500/30 transition-all">
+                                    <div className="flex justify-between items-start mb-4">
+                                        <div className="p-2 box-content h-4 w-4 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-500">
+                                            <Zap className="h-4 w-4" />
+                                        </div>
+                                        <span className="text-[8px] font-black text-white/20 uppercase tracking-widest border border-white/5 px-2 py-0.5 rounded">Wallet_02</span>
+                                    </div>
+                                    <div className="space-y-1">
+                                        <div className="text-[9px] font-black text-white/30 uppercase tracking-widest">Game_Fuel_Internal</div>
+                                        <div className="text-xl font-mono font-black text-white">
+                                            {hideBalances ? "****" : (realBalances.game || 0).toFixed(2)} <span className="text-xs text-white/20">USDT</span>
+                                        </div>
+                                    </div>
+                                </Card>
+
+                                {/* Wallet 4: Cashback/ROI Wallet */}
+                                <Card className="bg-white/[0.02] border-white/10 p-5 rounded-2xl group/w hover:border-emerald-500/30 transition-all">
+                                    <div className="flex justify-between items-start mb-4">
+                                        <div className="p-2 box-content h-4 w-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-500">
+                                            <TrendingUp className="h-4 w-4" />
+                                        </div>
+                                        <span className="text-[8px] font-black text-white/20 uppercase tracking-widest border border-white/5 px-2 py-0.5 rounded">Wallet_04</span>
+                                    </div>
+                                    <div className="space-y-1">
+                                        <div className="text-[9px] font-black text-white/30 uppercase tracking-widest">Cashback_ROI_Vault</div>
+                                        <div className="text-xl font-mono font-black text-white">
+                                            {hideBalances ? "****" : (realBalances.cashbackROI || 0).toFixed(2)} <span className="text-xs text-white/20">USDT</span>
+                                        </div>
+                                    </div>
+                                </Card>
+
+                                {/* Wallet 5: Lucky Draw Entry Wallet */}
+                                <Card className="bg-white/[0.02] border-white/10 p-5 rounded-2xl group/w hover:border-purple-500/30 transition-all">
+                                    <div className="flex justify-between items-start mb-4">
+                                        <div className="p-2 box-content h-4 w-4 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-500">
+                                            <Repeat className="h-4 w-4" />
+                                        </div>
+                                        <span className="text-[8px] font-black text-white/20 uppercase tracking-widest border border-white/5 px-2 py-0.5 rounded">Wallet_05</span>
+                                    </div>
+                                    <div className="space-y-1">
+                                        <div className="text-[9px] font-black text-white/30 uppercase tracking-widest">Lucky_Draw_Entry</div>
+                                        <div className="text-xl font-mono font-black text-white">
+                                            {hideBalances ? "****" : (realBalances.luckyDrawWallet || 0).toFixed(2)} <span className="text-xs text-white/20">USDT</span>
+                                        </div>
+                                    </div>
+                                </Card>
+
+                                {/* Wallet 6: Practice Wallet */}
+                                <Card className="bg-white/[0.02] border-white/10 p-5 rounded-2xl group/w hover:border-white/30 transition-all opacity-60">
+                                    <div className="flex justify-between items-start mb-4">
+                                        <div className="p-2 box-content h-4 w-4 rounded-xl bg-white/5 border border-white/10 text-white/40">
+                                            <Activity className="h-4 w-4" />
+                                        </div>
+                                        <span className="text-[8px] font-black text-white/20 uppercase tracking-widest border border-white/5 px-2 py-0.5 rounded">Wallet_06</span>
+                                    </div>
+                                    <div className="space-y-1">
+                                        <div className="text-[9px] font-black text-white/30 uppercase tracking-widest">Practice_Simulation</div>
+                                        <div className="text-xl font-mono font-black text-white">
+                                            {hideBalances ? "****" : parseFloat(user?.practiceBalance?.toString() || "0").toFixed(2)} <span className="text-xs text-white/20">USDT</span>
+                                        </div>
+                                    </div>
+                                </Card>
                             </div>
-                        </CardContent>
-                    </Card>
+                        </div>
+                    </div>
+
+                    {/* Primary Actions Grid */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-8">
+                        <Button
+                            onClick={handleDeposit}
+                            className="h-16 bg-emerald-500 hover:bg-emerald-400 text-black font-black text-sm uppercase tracking-widest rounded-2xl transition-all shadow-[0_0_30px_rgba(16,185,129,0.2)]"
+                        >
+                            <Plus className="mr-2 h-5 w-5" /> DEPOSIT_USDT_TO_GAME
+                        </Button>
+                        <Button
+                            onClick={() => setIsWithdrawOpen(true)}
+                            variant="outline"
+                            className="h-16 border-white/10 hover:bg-white/5 text-white font-black text-sm uppercase tracking-widest rounded-2xl transition-all"
+                        >
+                            <ArrowUpRight className="mr-2 h-5 w-5" /> WITHDRAW_INTERNAL_PROFIT
+                        </Button>
+                    </div>
                 </div>
 
 

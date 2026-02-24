@@ -26,7 +26,7 @@ const userSchema = new mongoose.Schema({
     },
     role: {
         type: String,
-        enum: ['player', 'admin', 'superadmin'],
+        enum: ['player', 'admin', 'superadmin', 'finance_admin', 'compliance_admin', 'support_admin', 'tech_admin', 'subadmin'],
         default: 'player'
     },
     permissions: {
@@ -69,19 +69,18 @@ const userSchema = new mongoose.Schema({
         enum: ['none', 'starter', 'premium', 'vip'],
         default: 'none'
     },
-    // Unified real balances (Sweepstakes + On-chain compatible)
+    // Unified 6-Wallet System (4 Internal + 2 On-chain tracked)
     realBalances: {
-        cash: { type: Number, default: 0 },
-        game: { type: Number, default: 0 },
-        cashback: { type: Number, default: 0 },
-        lucky: { type: Number, default: 0 },
-        directLevel: { type: Number, default: 0 },
-        winners: { type: Number, default: 0 },
-        roiOnRoi: { type: Number, default: 0 },
-        club: { type: Number, default: 0 },
-        teamWinners: { type: Number, default: 0 },
-        walletBalance: { type: Number, default: 0 },
-        luckyDrawWallet: { type: Number, default: 0 }
+        game: { type: Number, default: 0 },          // Wallet 2: Game Wallet (Internal)
+        cashbackROI: { type: Number, default: 0 },   // Wallet 4: Cashback/ROI/ROI-on-ROI (Internal)
+        luckyDrawWallet: { type: Number, default: 0 }, // Wallet 5: Lucky Draw Entry Wallet (Internal)
+
+        // Tracking for on-chain flows (destined for Wallet 1)
+        winners: { type: Number, default: 0 },       // Pending 2X Payouts/Prizes to be withdrawn to On-chain
+        directLevel: { type: Number, default: 0 },   // Referral income pending withdrawal to On-chain
+
+        // Operational balances (transitional)
+        cash: { type: Number, default: 0 }           // General deposit transit wallet
     },
     // Legacy fields - kept for compatibility but deprecated
     practiceBalance: { type: Number, default: 100 },
@@ -171,6 +170,7 @@ const userSchema = new mongoose.Schema({
     },
     isActive: { type: Boolean, default: true },
     lastLoginAt: { type: Date, default: null },
+    lastActionAt: { type: Date, default: null },
     createdAt: { type: Date, default: Date.now },
     updatedAt: { type: Date, default: Date.now }
 });
@@ -231,15 +231,10 @@ const normalizeRealBalances = (user) => {
     const defaults = {
         cash: 0,
         game: 0,
-        cashback: 0,
-        lucky: 0,
+        cashbackROI: 0,
+        luckyDrawWallet: 0,
         directLevel: 0,
-        winners: 0,
-        roiOnRoi: 0,
-        club: 0,
-        teamWinners: 0,
-        walletBalance: 0,
-        luckyDrawWallet: 0
+        winners: 0
     };
     for (const key of Object.keys(defaults)) {
         if (typeof user.realBalances[key] !== 'number') {
@@ -377,32 +372,26 @@ userSchema.methods.generateNonce = function () {
     return this.nonce;
 };
 
-// Virtual properties for calculated balances
+// Virtual properties for 6-Wallet display
 userSchema.virtual('realBalances.grandTotal').get(function () {
     if (!this.realBalances) return 0;
-    return (this.realBalances.cash || 0) +
-        (this.realBalances.game || 0) +
-        (this.realBalances.directLevel || 0) +
+    return (this.realBalances.game || 0) +
+        (this.realBalances.cashbackROI || 0) +
+        (this.realBalances.luckyDrawWallet || 0) +
         (this.realBalances.winners || 0) +
-        (this.realBalances.teamWinners || 0) +
-        (this.realBalances.cashback || 0) +
-        (this.realBalances.roiOnRoi || 0) +
-        (this.realBalances.club || 0) +
-        (this.realBalances.lucky || 0);
+        (this.realBalances.directLevel || 0) +
+        (this.realBalances.cash || 0);
 });
 
-userSchema.virtual('realBalances.totalUnified').get(function () {
-    if (!this.realBalances) return 0;
-    // Sum of all income streams (excluding cash and game which are operational balances)
-    return (this.realBalances.directLevel || 0) +
-        (this.realBalances.winners || 0) +
-        (this.realBalances.teamWinners || 0) +
-        (this.realBalances.cashback || 0) +
-        (this.realBalances.roiOnRoi || 0) +
-        (this.realBalances.club || 0) +
-        (this.realBalances.lucky || 0) +
-        (this.realBalances.game || 0) +
-        (this.realBalances.cash || 0);
+userSchema.virtual('wallets').get(function () {
+    return {
+        main: this.walletAddress || 'Not Connected',
+        game: this.realBalances.game || 0,
+        practice: this.practiceBalance || 0,
+        cashbackROI: this.realBalances.cashbackROI || 0,
+        luckyDraw: this.realBalances.luckyDrawWallet || 0,
+        bd: 'Managed by Smart Contract'
+    };
 });
 
 // Enable virtuals in JSON output

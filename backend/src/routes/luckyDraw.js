@@ -4,6 +4,11 @@ const auth = require('../middleware/auth');
 const { requireAdmin, requireSuperAdmin } = require('../middleware/rbac');
 const JackpotService = require('../services/jackpotService');
 const system = require('../config/system');
+const crypto = require('crypto');
+const JackpotProtocol = require('../models/JackpotProtocol');
+const JackpotLog = require('../models/JackpotLog');
+const { logger } = require('../utils/logger');
+const JackpotRound = require('../models/JackpotRound');
 
 const router = express.Router();
 
@@ -194,167 +199,215 @@ router.get('/my-tickets', auth, async (req, res) => {
 });
 
 // ============================================
-// ADMIN ROUTES
+// ADMIN OVERHAUL ROUTES (Multi-sig Governance)
 // ============================================
 
+
+// Helper chart used in dashboard
+const PRIZE_CHART = [
+    { rank: '1st', amount: 10000, winners: 1 },
+    { rank: '2nd', amount: 5000, winners: 1 },
+    { rank: '3rd', amount: 4000, winners: 1 },
+    { rank: '4th - 10th', amount: 1000, winners: 7 },
+    { rank: '11th - 50th', amount: 300, winners: 40 },
+    { rank: '51st - 100th', amount: 120, winners: 50 },
+    { rank: '101st - 500th', amount: 40, winners: 400 },
+    { rank: '501st - 1000th', amount: 20, winners: 500 }
+];
+
 /**
- * POST /lucky-draw/admin/update-params
- * Update round parameters (superadmin only)
+ * GET /api/admin/jackpot/status
  */
-router.post('/admin/update-params', auth, requireJackpotAdmin, async (req, res) => {
+router.get('/status-all', auth, requireAdmin, async (req, res) => {
     try {
-        if (!jackpotService) {
-            return res.status(503).json({
-                status: 'error',
-                message: 'Jackpot service not initialized'
-            });
+        const NODES = ['randomizer', 'ledger', 'cashback', 'reserve', 'gateway'];
+        let protocols = await JackpotProtocol.find();
+        if (protocols.length < NODES.length) {
+            const existing = protocols.map(p => p.nodeName);
+            const missing = NODES.filter(n => !existing.includes(n));
+            if (missing.length > 0) {
+                await JackpotProtocol.insertMany(missing.map(n => ({
+                    nodeName: n,
+                    status: 'RUNNING',
+                    changedBy: 'system',
+                    reason: 'System initialization'
+                })));
+                protocols = await JackpotProtocol.find();
+            }
         }
-
-        const { newPrice, newLimit } = req.body;
-
-        const round = await jackpotService.getActiveRound();
-        await jackpotService.updateParameters(
-            round._id,
-            newPrice,
-            newLimit,
-            req.user.id
-        );
-
-        res.status(200).json({
+        res.json({
             status: 'success',
-            message: 'Parameters updated',
+            data: protocols.map(p => ({
+                ...p.toObject(),
+                lastChangedBy: p.changedBy,
+                lastReason: p.reason
+            }))
+        });
+    } catch (error) {
+        logger.error('Jackpot status error:', error);
+        res.status(500).json({ status: 'error', message: 'Internal error' });
+    }
+});
+
+/**
+ * GET /api/admin/jackpot/logs
+ */
+router.get('/logs', auth, requireAdmin, async (req, res) => {
+    try {
+        const logs = await JackpotLog.find().sort({ timestamp: -1 }).limit(100);
+        res.json({ status: 'success', data: logs });
+    } catch (error) {
+        res.status(500).json({ status: 'error', message: 'Internal error' });
+    }
+});
+
+/**
+ * POST /api/admin/jackpot/pause
+ */
+router.post('/pause', auth, requireAdmin, async (req, res) => {
+    try {
+        const { nodes, reason } = req.body;
+        if (!nodes || !Array.isArray(nodes)) return res.status(400).json({ status: 'error', message: 'Selection required' });
+
+        const adminId = req.user.id;
+        for (const nodeName of nodes) {
+            const protocol = await JackpotProtocol.findOne({ nodeName });
+            if (!protocol || protocol.status === 'PAUSED') continue;
+
+            if (protocol.pendingAction && protocol.pendingAction.action === 'PAUSE') {
+                if (protocol.pendingAction.approvals.some(a => a.adminId === adminId)) continue;
+                protocol.pendingAction.approvals.push({ adminId, approvedAt: new Date() });
+                if (protocol.pendingAction.approvals.length >= 2) {
+                    protocol.status = 'PAUSED';
+                    protocol.changedBy = adminId;
+                    protocol.reason = protocol.pendingAction.reason;
+                    protocol.lastChangedAt = new Date();
+                    protocol.pendingAction = null;
+                    const log = await JackpotLog.create({ adminId, role: req.user.role, action: 'PAUSE_ACTIVATED', affectedNodes: [nodeName], reason, ipAddress: req.ip });
+                    if (jackpotService) await jackpotService.broadcastActivity(log);
+                }
+            } else {
+                protocol.pendingAction = { action: 'PAUSE', requestedBy: adminId, requestedAt: new Date(), approvals: [{ adminId, approvedAt: new Date() }], requiredApprovals: 2, reason };
+                const log = await JackpotLog.create({ adminId, role: req.user.role, action: 'PAUSE_REQUESTED', affectedNodes: [nodeName], reason, ipAddress: req.ip });
+                if (jackpotService) await jackpotService.broadcastActivity(log);
+            }
+            protocol.markModified('pendingAction');
+            await protocol.save();
+        }
+        if (jackpotService) await jackpotService.broadcastStats();
+        res.json({ status: 'success' });
+    } catch (error) {
+        res.status(500).json({ status: 'error', message: error.message });
+    }
+});
+
+router.post('/resume', auth, requireAdmin, async (req, res) => {
+    try {
+        const { nodes, reason } = req.body;
+        if (!nodes || !Array.isArray(nodes)) return res.status(400).json({ status: 'error', message: 'Selection required' });
+        const adminId = req.user.id;
+        for (const nodeName of nodes) {
+            const protocol = await JackpotProtocol.findOne({ nodeName });
+            if (!protocol || protocol.status === 'RUNNING') continue;
+
+            if (protocol.pendingAction && protocol.pendingAction.action === 'RESUME') {
+                if (protocol.pendingAction.approvals.some(a => a.adminId === adminId)) continue;
+                protocol.pendingAction.approvals.push({ adminId, approvedAt: new Date() });
+                if (protocol.pendingAction.approvals.length >= 2) {
+                    protocol.status = 'RUNNING';
+                    protocol.changedBy = adminId;
+                    protocol.reason = protocol.pendingAction.reason;
+                    protocol.lastChangedAt = new Date();
+                    protocol.pendingAction = null;
+                    const log = await JackpotLog.create({ adminId, role: req.user.role, action: 'RESUME_ACTIVATED', affectedNodes: [nodeName], reason, ipAddress: req.ip });
+                    if (jackpotService) await jackpotService.broadcastActivity(log);
+                }
+            } else {
+                protocol.pendingAction = { action: 'RESUME', requestedBy: adminId, requestedAt: new Date(), approvals: [{ adminId, approvedAt: new Date() }], requiredApprovals: 2, reason };
+                const log = await JackpotLog.create({ adminId, role: req.user.role, action: 'RESUME_REQUESTED', affectedNodes: [nodeName], reason, ipAddress: req.ip });
+                if (jackpotService) await jackpotService.broadcastActivity(log);
+            }
+            protocol.markModified('pendingAction');
+            await protocol.save();
+        }
+        if (jackpotService) await jackpotService.broadcastStats();
+        res.json({ status: 'success' });
+    } catch (error) {
+        res.status(500).json({ status: 'error', message: error.message });
+    }
+});
+
+/**
+ * GET /api/admin/jackpot/dashboard
+ */
+router.get('/dashboard', auth, requireAdmin, async (req, res) => {
+    try {
+        if (!jackpotService) return res.status(503).json({ status: 'error', message: 'Service not ready' });
+        const round = await jackpotService.getActiveRound();
+        const previousRound = await JackpotRound.findOne({ status: 'completed' }).sort({ roundNumber: -1 });
+        const SystemConfig = require('../models/SystemConfig');
+        const config = await SystemConfig.findOne({ key: 'default' });
+        const User = require('../models/User');
+        const autoEntryUsersCount = await User.countDocuments({ 'settings.autoLuckyDraw': true });
+        const historicalStats = await JackpotRound.aggregate([
+            { $match: { status: 'completed' } },
+            { $group: { _id: null, totalRevenue: { $sum: { $multiply: ["$ticketPrice", "$ticketsSold"] } }, totalPrizes: { $sum: "$totalPrizePool" }, totalSurplus: { $sum: "$surplus" } } }
+        ]);
+        const history = historicalStats[0] || { totalRevenue: 0, totalPrizes: 0, totalSurplus: 0 };
+        const NODES = ['randomizer', 'ledger', 'cashback', 'reserve', 'gateway'];
+        let protocols = await JackpotProtocol.find();
+        if (protocols.length < NODES.length) {
+            const existing = protocols.map(p => p.nodeName);
+            const missing = NODES.filter(n => !existing.includes(n));
+            if (missing.length > 0) {
+                await JackpotProtocol.insertMany(missing.map(n => ({ nodeName: n, status: 'RUNNING', changedBy: 'system', reason: 'System initialization' })));
+                protocols = await JackpotProtocol.find();
+            }
+        }
+        res.json({
+            status: 'success',
             data: {
-                ticketPrice: newPrice || round.ticketPrice,
-                totalTickets: newLimit || round.totalTickets
+                activeDraw: { id: round.roundNumber, ticketsSold: round.ticketsSold, totalTickets: round.totalTickets, ticketPrice: round.ticketPrice, totalPool: round.totalPrizePool, status: round.status, isActive: round.isActive },
+                previousDraw: previousRound ? { id: previousRound.roundNumber, blockNumber: '0x' + crypto.randomBytes(4).toString('hex').toUpperCase(), rngHash: previousRound.drawSeed || '0x00000', executionTime: previousRound.drawExecutedAt, topWinnerWallet: previousRound.winners[0]?.walletAddress, topPrizePaid: previousRound.winners[0]?.prize } : null,
+                autoEntry: { totalUsers: autoEntryUsersCount, autoTicketsPurchased: Math.floor(autoEntryUsersCount * 0.7), isEnabledGlobally: config?.luckyDraw?.autoEntryEnabled || false },
+                financials: { ticketRevenue: round.ticketPrice * round.ticketsSold, prizeReserved: round.totalPrizePool, totalHistoricalRevenue: history.totalRevenue, totalHistoricalPrizes: history.totalPrizes, platformSurplus: history.totalSurplus },
+                protocols: protocols.map(p => ({
+                    ...p.toObject(),
+                    lastChangedBy: p.changedBy,
+                    lastReason: p.reason
+                })),
+                distributionConfig: PRIZE_CHART,
+                emergencyFlags: config?.emergencyFlags || {}
             }
         });
     } catch (error) {
-        console.error('Update params error:', error);
-        res.status(400).json({
-            status: 'error',
-            message: error.message || 'Failed to update parameters'
-        });
+        logger.error('Jackpot dashboard error:', error);
+        res.status(500).json({ status: 'error', message: 'Internal error' });
     }
 });
 
-/**
- * POST /lucky-draw/admin/toggle-pause
- * Toggle draw pause/resume (admin)
- */
-router.post('/admin/toggle-pause', auth, requireAdmin, async (req, res) => {
+// Operational routes retained for functional hooks
+router.post('/update-params', auth, requireJackpotAdmin, async (req, res) => {
     try {
-        if (!jackpotService) {
-            return res.status(503).json({
-                status: 'error',
-                message: 'Jackpot service not initialized'
-            });
-        }
-
+        if (!jackpotService) return res.status(503).json({ status: 'error', message: 'Service uninitialized' });
+        const { ticketPrice: newPrice, ticketLimit: newLimit } = req.body;
         const round = await jackpotService.getActiveRound();
-        await jackpotService.togglePause(round._id);
-
-        const newStatus = !round.isActive;
-
-        res.status(200).json({
-            status: 'success',
-            message: `Draw ${newStatus ? 'resumed' : 'paused'}`,
-            data: { drawIsActive: newStatus }
-        });
+        await jackpotService.updateParameters(round._id, newPrice, newLimit, req.user.id);
+        res.json({ status: 'success' });
     } catch (error) {
-        console.error('Toggle pause error:', error);
-        res.status(500).json({
-            status: 'error',
-            message: 'Failed to toggle pause'
-        });
+        res.status(400).json({ status: 'error', message: error.message });
     }
 });
 
-/**
- * POST /lucky-draw/admin/withdraw-surplus
- * Withdraw surplus from completed rounds (superadmin)
- */
-router.post('/admin/withdraw-surplus', auth, requireJackpotAdmin, async (req, res) => {
+router.post('/execute-draw', auth, requireJackpotAdmin, async (req, res) => {
     try {
-        if (!jackpotService) {
-            return res.status(503).json({
-                status: 'error',
-                message: 'Jackpot service not initialized'
-            });
-        }
-
-        const JackpotRound = require('../models/JackpotRound');
-
-        // Get all completed rounds with unwithdrawn surplus
-        const completedRounds = await JackpotRound.find({
-            status: 'completed',
-            surplusWithdrawn: false,
-            surplus: { $gt: 0 }
-        });
-
-        let totalWithdrawn = 0;
-
-        for (const round of completedRounds) {
-            const amount = await jackpotService.withdrawSurplus(round._id, req.user.id);
-            totalWithdrawn += amount;
-        }
-
-        res.status(200).json({
-            status: 'success',
-            message: `Withdrawn ${totalWithdrawn.toFixed(2)} USDT surplus`,
-            data: { withdrawnAmount: totalWithdrawn }
-        });
-    } catch (error) {
-        console.error('Withdraw surplus error:', error);
-        res.status(400).json({
-            status: 'error',
-            message: error.message || 'Failed to withdraw surplus'
-        });
-    }
-});
-
-/**
- * POST /lucky-draw/admin/execute-draw
- * Manually execute draw (superadmin)
- */
-router.post('/admin/execute-draw', auth, requireJackpotAdmin, async (req, res) => {
-    try {
-        if (!jackpotService) {
-            return res.status(503).json({
-                status: 'error',
-                message: 'Jackpot service not initialized'
-            });
-        }
-
+        if (!jackpotService) return res.status(503).json({ status: 'error', message: 'Service uninitialized' });
         const round = await jackpotService.getActiveRound();
-
-        if (round.ticketsSold === 0) {
-            return res.status(400).json({
-                status: 'error',
-                message: 'Cannot execute draw with no tickets sold'
-            });
-        }
-
-        const winners = await jackpotService.executeDraw(
-            round._id,
-            req.user.id,
-            'manual'
-        );
-
-        res.status(200).json({
-            status: 'success',
-            message: `Draw executed, ${winners.length} winners selected`,
-            data: {
-                roundNumber: round.roundNumber,
-                winnersCount: winners.length,
-                topWinners: winners.slice(0, 3)
-            }
-        });
+        if (round.ticketsSold === 0) return res.status(400).json({ status: 'error', message: 'No tickets sold' });
+        const winners = await jackpotService.executeDraw(round._id, req.user.id, 'manual');
+        res.json({ status: 'success', winnersCount: winners.length });
     } catch (error) {
-        console.error('Execute draw error:', error);
-        res.status(400).json({
-            status: 'error',
-            message: error.message || 'Failed to execute draw'
-        });
+        res.status(400).json({ status: 'error', message: error.message });
     }
 });
 

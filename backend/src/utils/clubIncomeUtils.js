@@ -1,5 +1,7 @@
 const User = require('../models/User');
 const PlatformStats = require('../models/PlatformStats');
+const { isPaused } = require('./emergency');
+
 
 const CLUB_RANKS = {
     'Rank 1': { poolShare: 0.02, targetVolume: 10000, name: 'Bronze Director' },
@@ -89,6 +91,12 @@ const calculateUserRank = (user) => {
 const processDailyClubIncome = async (io, manualTurnover = null) => {
     console.log("🏆 Processing Daily Club Income...");
     try {
+        // Emergency Protocol Check
+        if (await isPaused('clubIncome')) {
+            console.warn("EMERGENCY_PAUSE: Club Income distribution is suspended.");
+            return { success: false, message: 'EMERGENCY_PAUSE: Club Income distribution is suspended.' };
+        }
+
         const stats = await PlatformStats.getToday();
         const activeTurnover = manualTurnover || stats.dailyTurnover;
 
@@ -126,7 +134,7 @@ const processDailyClubIncome = async (io, manualTurnover = null) => {
 
             for (const user of users) {
                 const previousRank = user.clubRank;
-                user.realBalances.club = (user.realBalances.club || 0) + perUserIncome;
+                user.realBalances.cashbackROI = (user.realBalances.cashbackROI || 0) + perUserIncome;
                 user.totalRewardsWon = (user.totalRewardsWon || 0) + perUserIncome;
 
                 // Update rank field to be sure
@@ -138,7 +146,7 @@ const processDailyClubIncome = async (io, manualTurnover = null) => {
                     io.to(user._id.toString()).emit('balance_update', {
                         type: 'club_income',
                         amount: perUserIncome,
-                        newBalance: user.realBalances.club,
+                        newBalance: user.realBalances.cashbackROI,
                         rank: rankId
                     });
 

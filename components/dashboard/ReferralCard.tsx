@@ -67,7 +67,7 @@ export function ReferralCard() {
                     </div>
                 </div>
                 <div className="text-[11px] text-white/60">
-                    Practice L1 Reward: <span className="text-emerald-400 font-bold">{practiceLevel1.toFixed(2)}</span> (non-withdrawable)
+                    Practice L1 Reward: <span className="text-emerald-400 font-bold">{(practiceLevel1 || 0).toFixed(2)}</span> (non-withdrawable)
                 </div>
             </CardContent>
         </Card>

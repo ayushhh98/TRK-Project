@@ -1,83 +1,97 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import {
     LayoutDashboard,
     Users,
-    Database,
     Wallet,
+    Receipt,
     DollarSign,
     Gift,
-    Image as ImageIcon,
+    Crown,
+    Gamepad2,
+    BarChart3,
+    ShieldAlert,
+    FileText,
+    Clock,
+    Shield,
+    Network,
+    TrendingUp,
+    History,
     LogOut,
     Menu,
     X,
     ChevronRight,
-    ShieldCheck,
-    Receipt,
-    ShieldAlert,
-    Settings,
-    Crown,
-    Gamepad2,
-    FileText,
-    BarChart3
+    Activity,
+    Zap,
+    AlertTriangle
 } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useWallet } from "@/components/providers/WalletProvider";
 import { Button } from "@/components/ui/Button";
 import { motion, AnimatePresence } from "framer-motion";
 import { Logo } from "@/components/ui/Logo";
-import { useRouter } from "next/navigation";
+import { useAdminSocket } from "@/hooks/useAdminSocket";
 
 interface AdminSidebarProps {
-    activeTab: string;
-    onTabChange: (tab: string) => void;
+    // These might be used if we stay with tab-based, but layout.tsx suggest route-based.
+    // Keeping for compatibility if needed, but layout.tsx uses paths.
+    activeTab?: string;
+    onTabChange?: (tab: string) => void;
 }
 
 const menuGroups = [
     {
-        label: "Core",
+        label: "Core Protocol",
         items: [
-            { id: "overview", label: "Overview", icon: LayoutDashboard },
-            { id: "users", label: "User Management", icon: Users },
-            { id: "wallet", label: "Wallet Control", icon: Wallet },
+            { id: "dashboard", label: "Overview", icon: LayoutDashboard, path: "/admin/dashboard", badge: "Live" },
+            { id: "users", label: "Identity Hub", icon: Users, path: "/admin/users" },
+            { id: "games", label: "Game Audit", icon: Gamepad2, path: "/admin/games", badge: "Live" },
+            { id: "network", label: "Network Grid", icon: Network, path: "/admin/network" },
         ]
     },
     {
-        label: "Finance",
+        label: "Finance Engine",
         items: [
-            { id: "transactions", label: "Transactions", icon: Receipt, badge: "New" },
-            { id: "finance", label: "Financials", icon: DollarSign },
-            { id: "jackpot", label: "Jackpot Engine", icon: Gift, badge: "Live" },
-            { id: "club", label: "Club Monitor", icon: Crown, badge: "New" },
+            { id: "financials", label: "Treasury", icon: BarChart3, path: "/admin/financials" },
+            { id: "economics", label: "Economics", icon: TrendingUp, path: "/admin/economics" },
+            { id: "transactions", label: "Ledger", icon: History, path: "/admin/transactions", badge: "Live" },
+            { id: "roi", label: "Yield Control", icon: Zap, path: "/admin/roi" },
+            { id: "bd-wallet", label: "BD Wallet", icon: Wallet, path: "/admin/bd-wallet", badge: "Live" },
         ]
     },
     {
-        label: "System",
+        label: "Ecosystem Mods",
         items: [
-            { id: "practice", label: "Practice Control", icon: Gamepad2, badge: "New" },
-
-            { id: "analytics", label: "Analytics", icon: BarChart3 },
+            { id: "jackpot", label: "Jackpot Host", icon: Gift, path: "/admin/jackpot", badge: "Live" },
+            { id: "practice", label: "Sandbox", icon: Gamepad2, path: "/admin/practice" },
+            { id: "club", label: "Elite Club", icon: Crown, path: "/admin/elite" },
         ]
     },
     {
-        label: "Security & Legal",
+        label: "Governance",
         items: [
-            { id: "emergency", label: "Emergency", icon: ShieldAlert, badge: "⚡" },
-            { id: "legal", label: "Legal & Compliance", icon: FileText, badge: "New" },
+            { id: "audit", label: "Audit Stream", icon: Clock, path: "/admin/audit" },
+            { id: "team", label: "Team & Access", icon: Shield, path: "/admin/team" },
+            { id: "legal", label: "Compliance", icon: FileText, path: "/admin/legal" },
+            { id: "emergency", label: "Defcon 1", icon: AlertTriangle, path: "/admin/emergency", badge: "⚡" },
         ]
     }
 ];
 
-// Flat list for backward compatibility
-const menuItems = menuGroups.flatMap(g => g.items);
-
-
 export function AdminSidebar({ activeTab, onTabChange }: AdminSidebarProps) {
+    const pathname = usePathname();
     const router = useRouter();
     const { disconnect } = useWallet();
+    const { connectionStatus } = useAdminSocket();
     const [isOpen, setIsOpen] = useState(false);
+    const [isMounted, setIsMounted] = useState(false);
+
+    useEffect(() => {
+        setIsMounted(true);
+    }, []);
 
     const handleTerminate = async () => {
         try {
@@ -114,7 +128,7 @@ export function AdminSidebar({ activeTab, onTabChange }: AdminSidebarProps) {
 
             {/* Main Sidebar */}
             <aside className={cn(
-                "fixed left-0 top-0 h-full w-[248px] bg-[#050505]/80 backdrop-blur-3xl border-r border-white/5 z-50 transition-all duration-500 ease-in-out lg:translate-x-0 shadow-2xl",
+                "fixed left-0 top-0 h-full w-[260px] bg-[#050505]/80 backdrop-blur-3xl border-r border-white/5 z-50 transition-all duration-500 ease-in-out lg:translate-x-0 shadow-2xl flex flex-col",
                 isOpen ? "translate-x-0" : "-translate-x-full"
             )}>
                 {/* Visual Accent */}
@@ -122,55 +136,70 @@ export function AdminSidebar({ activeTab, onTabChange }: AdminSidebarProps) {
 
                 <div className="flex flex-col h-full relative z-10">
                     {/* Header: Logo */}
-                    <div className="p-8 pb-10">
-                        <Link href="/admin" className="group inline-block mb-10">
+                    <div className="p-8 pb-6">
+                        <Link href="/admin" className="group inline-block mb-6">
                             <Logo withText className="h-10 w-auto group-hover:scale-105 transition-transform duration-300" />
                         </Link>
+                        <div className="flex items-center gap-2 px-2">
+                            <div className={cn(
+                                "h-1.5 w-1.5 rounded-full animate-pulse",
+                                connectionStatus === 'connected' ? "bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.5)]" : "bg-zinc-600"
+                            )} />
+                            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-white/30 truncate">
+                                {connectionStatus === 'connected' ? "System Link Active" : "Establishing Link..."}
+                            </span>
+                        </div>
                     </div>
 
                     {/* Menu Navigation */}
-                    <nav className="flex-1 px-4 space-y-1 overflow-y-auto custom-scrollbar pb-8">
+                    <nav className="flex-1 px-4 space-y-6 overflow-y-auto custom-scrollbar pb-8 pt-4">
                         {menuGroups.map((group) => (
-                            <div key={group.label} className="mb-4">
-                                <p className="text-[8px] font-black uppercase tracking-[0.2em] text-white/15 px-5 py-2">{group.label}</p>
+                            <div key={group.label} className="space-y-1">
+                                <h3 className="px-5 text-[9px] font-black uppercase tracking-[0.3em] text-white/20 mb-3">
+                                    {group.label}
+                                </h3>
                                 {group.items.map((item) => {
-                                    const isActive = activeTab === item.id;
+                                    const isActive = isMounted && (pathname === item.path || (onTabChange && activeTab === item.id));
                                     return (
                                         <button
                                             key={item.id}
                                             onClick={() => {
-                                                onTabChange(item.id);
+                                                if (onTabChange) {
+                                                    onTabChange(item.id);
+                                                } else {
+                                                    router.push(item.path);
+                                                }
                                                 setIsOpen(false);
                                             }}
                                             className={cn(
-                                                "w-full flex items-center justify-between px-5 py-3 rounded-2xl text-xs font-black transition-all duration-300 group relative overflow-hidden mb-0.5",
+                                                "w-full flex items-center justify-between px-5 py-3 rounded-2xl text-xs font-black transition-all duration-300 group relative overflow-hidden",
                                                 isActive
-                                                    ? "bg-gradient-to-r from-primary/20 to-transparent text-primary border border-primary/20"
+                                                    ? "bg-gradient-to-r from-primary/20 to-transparent text-primary border border-primary/20 shadow-[inset_0_0_20px_rgba(var(--primary),0.05)]"
                                                     : "text-zinc-500 hover:text-white hover:bg-white/[0.03] border border-transparent"
                                             )}
                                         >
-                                            <div className="flex items-center gap-3 relative z-10">
+                                            <div className="flex items-center gap-4 relative z-10">
                                                 <div className={cn(
-                                                    "p-1.5 rounded-xl transition-all duration-300",
+                                                    "p-2 rounded-xl transition-all duration-300",
                                                     isActive ? "bg-primary text-black" : "bg-zinc-900 text-zinc-600 group-hover:text-primary group-hover:bg-primary/10"
                                                 )}>
-                                                    <item.icon className="h-3.5 w-3.5" />
+                                                    <item.icon className="h-4 w-4" />
                                                 </div>
-                                                <span className="uppercase tracking-widest text-left text-[10px]">{item.label}</span>
+                                                <span className="uppercase tracking-widest text-[11px]">{item.label}</span>
                                             </div>
 
                                             <div className="flex items-center gap-2 relative z-10">
-                                                {(item as any).badge && (
+                                                {item.badge && (
                                                     <span className={cn(
-                                                        "px-1.5 py-0.5 rounded-md text-[7px] font-mono tracking-tighter uppercase",
+                                                        "px-2 py-0.5 rounded-md text-[8px] font-mono tracking-tighter uppercase",
                                                         isActive ? "bg-primary/20 text-primary" : "bg-white/5 text-zinc-600"
                                                     )}>
-                                                        {(item as any).badge}
+                                                        {item.badge}
                                                     </span>
                                                 )}
                                                 {isActive && (
                                                     <motion.div
-                                                        layoutId="activeChevron"
+                                                        layoutId="adminActiveChevron"
                                                         transition={{ type: "spring", stiffness: 300, damping: 30 }}
                                                     >
                                                         <ChevronRight className="h-3 w-3 text-primary" />
@@ -193,15 +222,21 @@ export function AdminSidebar({ activeTab, onTabChange }: AdminSidebarProps) {
                         ))}
                     </nav>
 
-
-                    <div className="p-6 mt-auto border-t border-white/5 bg-black/40 backdrop-blur-3xl space-y-6">
-                        <div className="p-4 rounded-xl bg-white/5 border border-white/5">
-                            <div className="flex items-center gap-3 mb-2">
-                                <ShieldCheck className="h-4 w-4 text-emerald-500" />
-                                <span className="text-[10px] font-black uppercase tracking-widest text-white/40">Secure Admin</span>
+                    <div className="p-6 border-t border-white/5 bg-black/40 backdrop-blur-3xl space-y-4">
+                        <div className="px-4 py-3 rounded-xl bg-white/[0.02] border border-white/5">
+                            <div className="flex items-center justify-between mb-2">
+                                <span className="text-[10px] font-black uppercase text-white/20 tracking-widest">Protocol Version</span>
+                                <span className="text-[10px] font-mono text-primary/60">v1.4.2_LATEST</span>
                             </div>
-                            <div className="w-full h-1 bg-white/10 rounded-full overflow-hidden">
-                                <div className="h-full w-full bg-emerald-500 animate-pulse" />
+                            <div className="h-1 w-full bg-white/5 rounded-full overflow-hidden">
+                                <motion.div
+                                    className="h-full bg-primary/40"
+                                    animate={{
+                                        width: connectionStatus === 'connected' ? '100%' : '30%',
+                                        opacity: [0.4, 0.7, 0.4]
+                                    }}
+                                    transition={{ duration: 2, repeat: Infinity }}
+                                />
                             </div>
                         </div>
 
@@ -212,9 +247,9 @@ export function AdminSidebar({ activeTab, onTabChange }: AdminSidebarProps) {
                         >
                             <div className="flex items-center gap-3">
                                 <LogOut className="h-5 w-5 group-hover:rotate-12 transition-transform" />
-                                <span className="text-xs font-black uppercase tracking-[0.2em]">Logout</span>
+                                <span className="text-xs font-black uppercase tracking-[0.2em]">Exit Access</span>
                             </div>
-                            <X className="h-3 w-3 opacity-30" />
+                            <Activity className="h-3 w-3 opacity-30" />
                         </Button>
                     </div>
                 </div >

@@ -8,7 +8,7 @@ import { motion } from "framer-motion";
 import { Dices, ShieldCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-export function PracticeGame() {
+export function PracticeGame({ variant = 'dice' }: { variant?: "dice" | "crash" | "spin" | "mines" | "plinko" | "matrix" | "guess" }) {
     const {
         isRealMode,
         practiceBalance,
@@ -42,8 +42,8 @@ export function PracticeGame() {
         setLastResult(null);
 
         try {
-            // Force gameType 'guess' which we added to backend
-            const res = await placeEntry(amount, prediction, 'guess');
+            // Use the variant passed from the lobby
+            const res = await placeEntry(amount, prediction, variant as any);
 
             setLastResult({
                 won: res.won,

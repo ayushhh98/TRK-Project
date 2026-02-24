@@ -14,7 +14,8 @@ export default function AdminLoginPage() {
     const [showDenied, setShowDenied] = useState(false);
     const [isMounted, setIsMounted] = useState(false);
 
-    const isAdmin = user?.role === "admin" || user?.role === "superadmin";
+    const ADMIN_ROLES = ["admin", "superadmin", "finance_admin", "compliance_admin", "support_admin", "tech_admin"];
+    const isAdmin = user?.role && ADMIN_ROLES.includes(user.role);
     const walletSnippet = user?.walletAddress
         ? `${user.walletAddress.slice(0, 6)}...${user.walletAddress.slice(-4)}`
         : null;

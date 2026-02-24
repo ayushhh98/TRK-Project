@@ -3,35 +3,26 @@ const mongoose = require('mongoose');
 const bdWalletSchema = new mongoose.Schema({
     name: {
         type: String,
-        required: true,
-        trim: true
+        required: true
     },
     address: {
         type: String,
         required: true,
         unique: true,
-        trim: true,
-        lowercase: true
+        lowercase: true,
+        trim: true
     },
     type: {
         type: String,
-        enum: ['BD', 'TREASURY', 'MARKETING', 'JACKPOT', 'OTHER'],
+        enum: ['TREASURY', 'BD', 'JACKPOT', 'MARKETING'],
         default: 'BD'
-    },
-    description: {
-        type: String,
-        trim: true
     },
     isActive: {
         type: Boolean,
         default: true
-    },
-    createdAt: {
-        type: Date,
-        default: Date.now
     }
+}, {
+    timestamps: true
 });
 
-const BDWallet = mongoose.model('BDWallet', bdWalletSchema);
-
-module.exports = BDWallet;
+module.exports = mongoose.model('BDWallet', bdWalletSchema);

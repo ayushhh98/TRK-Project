@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
 import { Copy, Dices, Trophy, XCircle, Timer, History as HistoryIcon, RefreshCw, ShieldCheck } from "lucide-react";
 import { useWallet } from "@/components/providers/WalletProvider";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 
 interface NumberGuessInterfaceProps {
     onPlaceEntry: (prediction: number, amount: number) => void;
@@ -18,6 +19,7 @@ interface NumberGuessInterfaceProps {
 export function NumberGuessInterface({ onPlaceEntry, isProcessing, lastResult, currencyLabel = "USDT" }: NumberGuessInterfaceProps) {
     const [selectedNumber, setSelectedNumber] = useState<number | null>(7); // Default to 7 like in screenshot
     const [amount, setAmount] = useState<string>("1");
+    const [activeTab, setActiveTab] = useState<string>("bet");
     const { gameHistory } = useWallet();
 
     const quickBets = [1, 5, 10, 50];
@@ -55,6 +57,7 @@ export function NumberGuessInterface({ onPlaceEntry, isProcessing, lastResult, c
             setTimeLeft(prev => {
                 if (prev <= 1) {
                     fetchRound(); // Refresh when timer hits zero
+                    setActiveTab("results"); // AUTO-SWITCH to results tab when timer ends
                     return 0;
                 }
                 return prev - 1;
@@ -127,54 +130,72 @@ export function NumberGuessInterface({ onPlaceEntry, isProcessing, lastResult, c
                         {/* Internal Cyber Grid bg */}
                         <div className="absolute inset-0 opacity-[0.03] bg-[linear-gradient(rgba(255,255,255,0.05)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.05)_1px,transparent_1px)] bg-[size:20px_20px]" />
 
-                        <div className="text-center z-10">
+                        <div className="text-center z-10 flex flex-col items-center">
                             <motion.div
-                                animate={{ opacity: [0.4, 1, 0.4] }}
-                                transition={{ duration: 2, repeat: Infinity }}
-                                className="text-[9px] font-black uppercase tracking-[0.4em] text-purple-400 mb-2"
+                                animate={{
+                                    rotate: [0, 5, -5, 0],
+                                    y: [0, -2, 0]
+                                }}
+                                transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
+                                className="mb-2"
                             >
-                                Next Draw In
+                                <Dices className="h-10 w-10 text-white drop-shadow-[0_0_15px_rgba(255,255,255,0.4)]" />
                             </motion.div>
-                            <div className="text-5xl font-black text-yellow-400 font-mono tracking-tighter drop-shadow-[0_0_20px_rgba(250,204,21,0.4)]">
+
+                            <div className="text-[10px] font-black uppercase tracking-[0.35em] text-purple-300/90 mb-1">
+                                Next Draw
+                            </div>
+
+                            <div className="text-5xl font-black text-yellow-500 font-mono tracking-tighter drop-shadow-[0_0_25px_rgba(234,179,8,0.5)]">
                                 {formatTime(timeLeft)}
                             </div>
-                            <div className="mt-2 h-1 w-12 bg-white/10 mx-auto rounded-full overflow-hidden">
-                                <motion.div
-                                    className="h-full bg-purple-500"
-                                    initial={{ width: 0 }}
-                                    animate={{ width: `${progress}%` }}
-                                />
-                            </div>
+
+                            <motion.div
+                                className="h-1.5 w-12 bg-purple-500 rounded-full mt-3 shadow-[0_0_15px_rgba(168,85,247,0.5)]"
+                                animate={{ opacity: [0.5, 1, 0.5] }}
+                                transition={{ duration: 2, repeat: Infinity }}
+                            />
                         </div>
 
                         {/* High-Fidelity SVG Timer */}
-                        <svg className="absolute inset-0 w-full h-full -rotate-90 scale-[0.85]">
+                        <svg className="absolute inset-0 w-full h-full -rotate-90">
                             <defs>
                                 <linearGradient id="timerGradient" x1="0%" y1="0%" x2="100%" y2="0%">
                                     <stop offset="0%" stopColor="#A855F7" />
                                     <stop offset="100%" stopColor="#3B82F6" />
                                 </linearGradient>
                                 <filter id="glow">
-                                    <feGaussianBlur stdDeviation="2" result="coloredBlur" />
+                                    <feGaussianBlur stdDeviation="4" result="coloredBlur" />
                                     <feMerge>
                                         <feMergeNode in="coloredBlur" />
                                         <feMergeNode in="SourceGraphic" />
                                     </feMerge>
                                 </filter>
                             </defs>
+
+                            {/* Dashed Outer Ring */}
+                            <circle
+                                cx="50%" cy="50%" r={radius + 20}
+                                stroke="#A855F7" strokeWidth="2"
+                                fill="transparent"
+                                strokeDasharray="4 4"
+                                className="opacity-40"
+                            />
+
                             {/* Background Track */}
                             <circle
-                                cx="50%" cy="50%" r={radius + 8}
-                                stroke="rgba(255,255,255,0.03)" strokeWidth="6"
+                                cx="50%" cy="50%" r={radius + 10}
+                                stroke="rgba(168,85,247,0.1)" strokeWidth="10"
                                 fill="transparent"
                             />
+
                             {/* Animated Progress */}
                             <motion.circle
-                                cx="50%" cy="50%" r={radius + 8}
-                                stroke="url(#timerGradient)" strokeWidth="6"
+                                cx="50%" cy="50%" r={radius + 10}
+                                stroke="url(#timerGradient)" strokeWidth="10"
                                 fill="transparent"
-                                strokeDasharray={2 * Math.PI * (radius + 8)}
-                                animate={{ strokeDashoffset: (2 * Math.PI * (radius + 8)) - (progress / 100) * 2 * Math.PI * (radius + 8) }}
+                                strokeDasharray={2 * Math.PI * (radius + 10)}
+                                animate={{ strokeDashoffset: (2 * Math.PI * (radius + 10)) - (progress / 100) * 2 * Math.PI * (radius + 10) }}
                                 transition={{ duration: 1, ease: "linear" }}
                                 strokeLinecap="round"
                                 filter="url(#glow)"
@@ -184,194 +205,242 @@ export function NumberGuessInterface({ onPlaceEntry, isProcessing, lastResult, c
                 </div>
             </div>
 
-            {/* Main Interactive Core */}
-            <div className="relative group">
-                {/* Background Decorations */}
-                <div className="absolute -inset-1 bg-gradient-to-r from-purple-600/20 to-blue-600/20 rounded-[44px] blur-xl opacity-50 group-hover:opacity-100 transition duration-1000" />
-
-                <div className="relative bg-[#0F1115] border border-white/10 rounded-[40px] p-10 space-y-10 shadow-2xl overflow-hidden">
-                    <div className="absolute top-0 right-0 p-8 opacity-[0.03] pointer-events-none">
-                        <Dices className="h-32 w-32 text-white -rotate-12" />
-                    </div>
-
-                    <div className="text-center space-y-1">
-                        <h3 className="text-sm font-black uppercase tracking-[0.4em] text-white/20">Oracle Selection</h3>
-                        <div className="h-px w-16 bg-gradient-to-r from-transparent via-white/10 to-transparent mx-auto" />
-                    </div>
-
-                    {/* Cyber Grid Keypad */}
-                    <div className="grid grid-cols-5 gap-5">
-                        {Array.from({ length: 10 }, (_, i) => i).map((num) => (
-                            <motion.button
-                                key={num}
-                                whileHover={{ scale: 1.05, y: -2 }}
-                                whileTap={{ scale: 0.95 }}
-                                onClick={() => !isProcessing && setSelectedNumber(num)}
-                                className={cn(
-                                    "aspect-square rounded-[24px] font-black text-3xl flex items-center justify-center transition-all duration-500 relative overflow-hidden group/btn",
-                                    selectedNumber === num
-                                        ? "bg-yellow-400 text-black shadow-[0_15px_40px_rgba(250,204,21,0.4)] border-transparent"
-                                        : "bg-[#16181D] text-white/40 border border-white/5 hover:border-white/20 hover:text-white"
-                                )}
-                            >
-                                {selectedNumber === num && (
-                                    <motion.div
-                                        layoutId="activeGlow"
-                                        className="absolute inset-0 bg-gradient-to-br from-white/40 to-transparent opacity-50"
-                                    />
-                                )}
-                                <span className="relative z-10">{num}</span>
-                            </motion.button>
-                        ))}
-                    </div>
-
-                    {/* Wager Controls */}
-                    <div className="space-y-6 pt-4">
-                        <div className="flex items-center justify-between px-2">
+            <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+                <div className="flex justify-center mb-10">
+                    <TabsList className="bg-white/[0.03] border border-white/10 p-1 rounded-2xl h-14">
+                        <TabsTrigger
+                            value="bet"
+                            className="px-8 text-[11px] font-black uppercase tracking-[0.2em] rounded-xl data-[state=active]:bg-primary data-[state=active]:text-black transition-all"
+                        >
                             <div className="flex items-center gap-2">
-                                <Coins className="h-3 w-3 text-white/30" />
-                                <span className="text-[10px] font-black uppercase tracking-widest text-white/30">Entry Amount</span>
+                                <Dices className="h-4 w-4" />
+                                Place Bet
                             </div>
-                            <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/5 border border-emerald-500/10">
-                                <Zap className="h-3 w-3 text-emerald-500" />
-                                <span className="text-[9px] font-black uppercase tracking-widest text-emerald-500">10x Potential</span>
+                        </TabsTrigger>
+                        <TabsTrigger
+                            value="results"
+                            className="px-8 text-[11px] font-black uppercase tracking-[0.2em] rounded-xl data-[state=active]:bg-pink-500 data-[state=active]:text-white transition-all"
+                        >
+                            <div className="flex items-center gap-2">
+                                <Trophy className="h-4 w-4" />
+                                Bet Results
                             </div>
-                        </div>
+                        </TabsTrigger>
+                    </TabsList>
+                </div>
 
-                        <div className="relative group/input">
-                            <div className="absolute inset-x-0 -bottom-px h-px bg-gradient-to-r from-transparent via-purple-500/50 to-transparent opacity-0 group-focus-within/input:opacity-100 transition-opacity" />
-                            <div className="flex items-center gap-4 bg-[#0A0B0D] p-3 rounded-3xl border border-white/5 group-focus-within/input:border-white/10 transition-all">
-                                <div className="pl-4 text-white/20 font-black text-xl">$</div>
-                                <input
-                                    type="number"
-                                    value={amount}
-                                    onChange={(e) => setAmount(e.target.value)}
-                                    className="bg-transparent w-full text-white font-mono font-bold text-2xl focus:outline-none placeholder:text-white/5"
-                                    placeholder="0.00"
-                                />
-                                <div className="flex gap-2 pr-1">
-                                    {quickBets.map(val => (
-                                        <button
-                                            key={val}
-                                            onClick={() => setAmount(val.toString())}
-                                            className="px-5 py-2.5 rounded-2xl bg-white/[0.03] hover:bg-white/[0.08] text-[10px] font-black text-white/40 hover:text-white transition-all active:scale-95 border border-white/5"
+                <AnimatePresence mode="wait">
+                    {activeTab === 'bet' && (
+                        <TabsContent value="bet" key="bet_content" forceMount>
+                            <motion.div
+                                initial={{ opacity: 0, y: 20 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: -20 }}
+                            >
+                                {/* Main Interactive Core */}
+                                <div className="relative group">
+                                    {/* Background Decorations */}
+                                    <div className="absolute -inset-1 bg-gradient-to-r from-purple-600/20 to-blue-600/20 rounded-[44px] blur-xl opacity-50 group-hover:opacity-100 transition duration-1000" />
+
+                                    <div className="relative bg-[#0F1115] border border-white/10 rounded-[40px] p-10 space-y-10 shadow-2xl overflow-hidden">
+                                        <div className="absolute top-0 right-0 p-8 opacity-[0.03] pointer-events-none">
+                                            <Dices className="h-32 w-32 text-white -rotate-12" />
+                                        </div>
+
+                                        <div className="text-center space-y-1">
+                                            <h3 className="text-sm font-black uppercase tracking-[0.4em] text-white/20">Oracle Selection</h3>
+                                            <div className="h-px w-16 bg-gradient-to-r from-transparent via-white/10 to-transparent mx-auto" />
+                                        </div>
+
+                                        {/* Cyber Grid Keypad */}
+                                        <div className="grid grid-cols-5 gap-5">
+                                            {Array.from({ length: 10 }, (_, i) => i).map((num) => (
+                                                <motion.button
+                                                    key={num}
+                                                    whileHover={{ scale: 1.05, y: -2 }}
+                                                    whileTap={{ scale: 0.95 }}
+                                                    onClick={() => !isProcessing && setSelectedNumber(num)}
+                                                    className={cn(
+                                                        "aspect-square rounded-[24px] font-black text-3xl flex items-center justify-center transition-all duration-500 relative overflow-hidden group/btn",
+                                                        selectedNumber === num
+                                                            ? "bg-yellow-400 text-black shadow-[0_15px_40px_rgba(250,204,21,0.4)] border-transparent"
+                                                            : "bg-[#16181D] text-white/40 border border-white/5 hover:border-white/20 hover:text-white"
+                                                    )}
+                                                >
+                                                    {selectedNumber === num && (
+                                                        <motion.div
+                                                            layoutId="activeGlow"
+                                                            className="absolute inset-0 bg-gradient-to-br from-white/40 to-transparent opacity-50"
+                                                        />
+                                                    )}
+                                                    <span className="relative z-10">{num}</span>
+                                                </motion.button>
+                                            ))}
+                                        </div>
+
+                                        {/* Wager Controls */}
+                                        <div className="space-y-6 pt-4">
+                                            <div className="flex items-center justify-between px-2">
+                                                <div className="flex items-center gap-2">
+                                                    <Coins className="h-3 w-3 text-white/30" />
+                                                    <span className="text-[10px] font-black uppercase tracking-widest text-white/30">Entry Amount</span>
+                                                </div>
+                                                <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/5 border border-emerald-500/10">
+                                                    <Zap className="h-3 w-3 text-emerald-500" />
+                                                    <span className="text-[9px] font-black uppercase tracking-widest text-emerald-500">10x Potential</span>
+                                                </div>
+                                            </div>
+
+                                            <div className="relative group/input">
+                                                <div className="absolute inset-x-0 -bottom-px h-px bg-gradient-to-r from-transparent via-purple-500/50 to-transparent opacity-0 group-focus-within/input:opacity-100 transition-opacity" />
+                                                <div className="flex items-center gap-4 bg-[#0A0B0D] p-3 rounded-3xl border border-white/5 group-focus-within/input:border-white/10 transition-all">
+                                                    <div className="pl-4 text-white/20 font-black text-xl">$</div>
+                                                    <input
+                                                        type="number"
+                                                        value={amount}
+                                                        onChange={(e) => setAmount(e.target.value)}
+                                                        className="bg-transparent w-full text-white font-mono font-bold text-2xl focus:outline-none placeholder:text-white/5"
+                                                        placeholder="0.00"
+                                                    />
+                                                    <div className="flex gap-2 pr-1">
+                                                        {quickBets.map(val => (
+                                                            <button
+                                                                key={val}
+                                                                onClick={() => setAmount(val.toString())}
+                                                                className="px-5 py-2.5 rounded-2xl bg-white/[0.03] hover:bg-white/[0.08] text-[10px] font-black text-white/40 hover:text-white transition-all active:scale-95 border border-white/5"
+                                                            >
+                                                                {val}
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* Execution Interface */}
+                                        <Button
+                                            onClick={handlePlaceBet}
+                                            disabled={isProcessing || selectedNumber === null}
+                                            className={cn(
+                                                "w-full h-20 rounded-[28px] font-black uppercase tracking-[0.3em] text-sm transition-all duration-700 relative overflow-hidden group/exec",
+                                                isProcessing
+                                                    ? "bg-white/5 text-white/10 cursor-wait"
+                                                    : "bg-gradient-to-r from-yellow-500 via-amber-400 to-yellow-500 text-black shadow-2xl hover:shadow-yellow-400/20"
+                                            )}
                                         >
-                                            {val}
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-                        </div>
-                    </div>
+                                            <div className="absolute inset-0 bg-[linear-gradient(120deg,transparent,rgba(255,255,255,0.3),transparent)] -translate-x-full group-hover/exec:animate-[shimmer_2s_infinite]" />
 
-                    {/* Execution Interface */}
-                    <Button
-                        onClick={handlePlaceBet}
-                        disabled={isProcessing || selectedNumber === null}
-                        className={cn(
-                            "w-full h-20 rounded-[28px] font-black uppercase tracking-[0.3em] text-sm transition-all duration-700 relative overflow-hidden group/exec",
-                            isProcessing
-                                ? "bg-white/5 text-white/10 cursor-wait"
-                                : "bg-gradient-to-r from-yellow-500 via-amber-400 to-yellow-500 text-black shadow-2xl hover:shadow-yellow-400/20"
-                        )}
-                    >
-                        <div className="absolute inset-0 bg-[linear-gradient(120deg,transparent,rgba(255,255,255,0.3),transparent)] -translate-x-full group-hover/exec:animate-[shimmer_2s_infinite]" />
-
-                        {isProcessing ? (
-                            <span className="flex items-center gap-4">
-                                <RefreshCw className="h-6 w-6 animate-spin opacity-50" />
-                                <span className="animate-pulse">Authorizing Draw...</span>
-                            </span>
-                        ) : (
-                            <span className="flex items-center gap-4">
-                                <ShieldCheck className="h-6 w-6 opacity-40" />
-                                <span>Initiate Entry Protocol</span>
-                            </span>
-                        )}
-                    </Button>
-                </div>
-            </div>
-
-            {/* Historical Oracle Data */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                <div className="lg:col-span-1 space-y-6">
-                    <div className="flex items-center justify-between px-2">
-                        <div className="flex items-center gap-2">
-                            <HistoryIcon className="h-3 w-3 text-white/30" />
-                            <span className="text-[10px] font-black uppercase tracking-widest text-white/30">Past Oracles</span>
-                        </div>
-                    </div>
-
-                    <div className="bg-[#0F1115]/50 border border-white/5 rounded-[32px] p-6 grid grid-cols-3 gap-3">
-                        {roundsHistory.slice(0, 6).map((round, idx) => (
-                            <div key={idx} className="bg-black/40 border border-white/5 rounded-2xl p-3 flex flex-col items-center justify-center gap-2">
-                                <span className="text-[8px] font-black text-white/10">#{round.roundNumber}</span>
-                                <div className="text-lg font-black text-white">{round.luckyNumber ?? '?'}</div>
-                            </div>
-                        ))}
-                        {roundsHistory.length === 0 && (
-                            <div className="col-span-full py-10 text-center text-white/5 text-[9px] font-black uppercase tracking-[0.2em]">
-                                Awaiting First Draw
-                            </div>
-                        )}
-                    </div>
-                </div>
-
-                <div className="lg:col-span-2 space-y-6">
-                    <div className="flex items-center justify-between px-2">
-                        <div className="flex items-center gap-2">
-                            <Trophy className="h-3 w-3 text-white/30" />
-                            <span className="text-[10px] font-black uppercase tracking-widest text-white/30">Your Tickets</span>
-                        </div>
-                        <span className="text-[9px] font-black text-white/10 uppercase tracking-widest">{gameHistory.length} Cycles</span>
-                    </div>
-
-                    <div className="space-y-4">
-                        {gameHistory.filter((h: any) => h.gameVariant === 'guess' || h.gameType === 'guess').slice(0, 4).map((item: any, i: number) => (
-                            <div key={i} className="bg-[#0F1115] border border-white/5 rounded-[32px] p-5 flex items-center justify-between group/ticket hover:border-white/10 transition-colors">
-                                <div className="flex items-center gap-5">
-                                    <div className={cn(
-                                        "h-12 w-12 rounded-2xl flex items-center justify-center font-black text-xl border transition-all",
-                                        item.status === 'pending'
-                                            ? "bg-black/40 border-white/5 text-white/20"
-                                            : item.won
-                                                ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400"
-                                                : "bg-[#1A1D24] border-white/5 text-white/40"
-                                    )}>
-                                        {item.pickedNumber ?? item.prediction ?? '-'}
-                                    </div>
-                                    <div className="space-y-1">
-                                        <div className="text-[8px] uppercase font-black tracking-widest text-white/10">
-                                            R-{item.roundNumber || '??'} • {new Date(item.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                        </div>
-                                        <div className="text-lg font-black text-white tracking-tight">
-                                            {item.amount} <span className="text-white/20 text-[10px] ml-1">USDT</span>
-                                        </div>
+                                            {isProcessing ? (
+                                                <span className="flex items-center gap-4">
+                                                    <RefreshCw className="h-6 w-6 animate-spin opacity-50" />
+                                                    <span className="animate-pulse">Authorizing Draw...</span>
+                                                </span>
+                                            ) : (
+                                                <span className="flex items-center gap-4">
+                                                    <ShieldCheck className="h-6 w-6 opacity-40" />
+                                                    <span>Initiate Entry Protocol</span>
+                                                </span>
+                                            )}
+                                        </Button>
                                     </div>
                                 </div>
-                                <div className={cn(
-                                    "px-4 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest border",
-                                    item.status === 'pending'
-                                        ? "bg-yellow-500/5 border-yellow-500/10 text-yellow-500/60 animate-pulse"
-                                        : item.won
-                                            ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-500"
-                                            : "bg-white/5 border-white/5 text-white/20"
-                                )}>
-                                    {item.status === 'pending' ? 'Orbiting' : item.won ? 'Winner' : 'Closed'}
+                            </motion.div>
+                        </TabsContent>
+                    )}
+
+                    {activeTab === 'results' && (
+                        <TabsContent value="results" key="results_content" forceMount>
+                            <motion.div
+                                initial={{ opacity: 0, y: 20 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: -20 }}
+                                className="space-y-10"
+                            >
+                                {/* Historical Oracle Data */}
+                                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                                    <div className="lg:col-span-1 space-y-6">
+                                        <div className="flex items-center justify-between px-2">
+                                            <div className="flex items-center gap-2">
+                                                <HistoryIcon className="h-3 w-3 text-white/30" />
+                                                <span className="text-[10px] font-black uppercase tracking-widest text-white/30">Past Oracles</span>
+                                            </div>
+                                        </div>
+
+                                        <div className="bg-[#0F1115]/50 border border-white/5 rounded-[32px] p-6 grid grid-cols-3 gap-3">
+                                            {roundsHistory.slice(0, 6).map((round, idx) => (
+                                                <div key={idx} className="bg-black/40 border border-white/5 rounded-2xl p-3 flex flex-col items-center justify-center gap-2">
+                                                    <span className="text-[8px] font-black text-white/10">#{round.roundNumber}</span>
+                                                    <div className="text-lg font-black text-white">{round.luckyNumber ?? '?'}</div>
+                                                </div>
+                                            ))}
+                                            {roundsHistory.length === 0 && (
+                                                <div className="col-span-full py-10 text-center text-white/5 text-[9px] font-black uppercase tracking-[0.2em]">
+                                                    Awaiting First Draw
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    <div className="lg:col-span-2 space-y-6">
+                                        <div className="flex items-center justify-between px-2">
+                                            <div className="flex items-center gap-2">
+                                                <Trophy className="h-3 w-3 text-white/30" />
+                                                <span className="text-[10px] font-black uppercase tracking-widest text-white/30">Your Tickets</span>
+                                            </div>
+                                            <span className="text-[9px] font-black text-white/10 uppercase tracking-widest">{gameHistory.length} Cycles</span>
+                                        </div>
+
+                                        <div className="space-y-4">
+                                            {gameHistory.filter((h: any) => h.gameVariant === 'guess' || h.gameType === 'guess').slice(0, 4).map((item: any, i: number) => (
+                                                <div key={i} className="bg-[#0F1115] border border-white/5 rounded-[32px] p-5 flex items-center justify-between group/ticket hover:border-white/10 transition-colors">
+                                                    <div className="flex items-center gap-5">
+                                                        <div className={cn(
+                                                            "h-12 w-12 rounded-2xl flex items-center justify-center font-black text-xl border transition-all",
+                                                            item.status === 'pending'
+                                                                ? "bg-black/40 border-white/5 text-white/20"
+                                                                : item.won
+                                                                    ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400"
+                                                                    : "bg-[#1A1D24] border-white/5 text-white/40"
+                                                        )}>
+                                                            {item.pickedNumber ?? item.prediction ?? '-'}
+                                                        </div>
+                                                        <div className="space-y-1">
+                                                            <div className="text-[8px] uppercase font-black tracking-widest text-white/10">
+                                                                R-{item.roundNumber || '??'} • {item.createdAt || item.timestamp ? new Date(item.createdAt || item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'REAL-TIME'}
+                                                            </div>
+                                                            <div className="text-lg font-black text-white tracking-tight">
+                                                                {item.amount} <span className="text-white/20 text-[10px] ml-1">USDT</span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    <div className={cn(
+                                                        "px-4 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest border",
+                                                        item.status === 'pending'
+                                                            ? "bg-yellow-500/5 border-yellow-500/10 text-yellow-500/60 animate-pulse"
+                                                            : item.won
+                                                                ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-500"
+                                                                : "bg-white/5 border-white/5 text-white/20"
+                                                    )}>
+                                                        {item.status === 'pending' ? 'Orbiting' : item.won ? 'Winner' : 'Closed'}
+                                                    </div>
+                                                </div>
+                                            ))}
+                                            {gameHistory.length === 0 && (
+                                                <div className="bg-[#0F1115]/50 border border-white/5 rounded-[32px] py-16 flex flex-col items-center justify-center space-y-4">
+                                                    <div className="h-10 w-10 rounded-full border border-white/5 flex items-center justify-center">
+                                                        <HistoryIcon className="h-5 w-5 text-white/5" />
+                                                    </div>
+                                                    <span className="text-[10px] font-black uppercase tracking-[0.3em] text-white/10">Zero Active Tickets</span>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
                                 </div>
-                            </div>
-                        ))}
-                        {gameHistory.length === 0 && (
-                            <div className="bg-[#0F1115]/50 border border-white/5 rounded-[32px] py-16 flex flex-col items-center justify-center space-y-4">
-                                <div className="h-10 w-10 rounded-full border border-white/5 flex items-center justify-center">
-                                    <HistoryIcon className="h-5 w-5 text-white/5" />
-                                </div>
-                                <span className="text-[10px] font-black uppercase tracking-[0.3em] text-white/10">Zero Active Tickets</span>
-                            </div>
-                        )}
-                    </div>
-                </div>
-            </div>
+                            </motion.div>
+                        </TabsContent>
+                    )}
+                </AnimatePresence>
+            </Tabs>
         </div>
     );
 }

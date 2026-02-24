@@ -3,6 +3,7 @@ const User = require('../models/User');
 const crypto = require('crypto');
 const { logger } = require('../utils/logger');
 const system = require('../config/system');
+const { isPaused } = require('../utils/emergency');
 
 /**
  * Jackpot Service
@@ -83,6 +84,11 @@ class JackpotService {
             throw new Error('Exceeds round ticket limit');
         }
 
+        // Emergency Protocol Check
+        if (await isPaused('jackpot')) {
+            throw new Error('EMERGENCY_PAUSE: Jackpot operations are suspended by protocol.');
+        }
+
         // Get user
         const user = await User.findById(userId);
         if (!user) {
@@ -116,8 +122,9 @@ class JackpotService {
         round.calculateSurplus();
         await round.save();
 
-        // Emit real-time event
+        // Emit real-time events
         this.emitTicketPurchased(round, user.walletAddress, quantity);
+        await this.broadcastStats(); // Real-time update for admin
 
         // Check if round is full - execute draw
         if (round.isFull) {
@@ -127,7 +134,7 @@ class JackpotService {
 
         return {
             tickets,
-            newBalance: user.credits,
+            newBalance: user.realBalances[purchaseFrom],
             currentProgress: round.progress,
             roundNumber: round.roundNumber
         };
@@ -137,6 +144,12 @@ class JackpotService {
      * Execute draw and select winners
      */
     async executeDraw(roundId, executedBy = null, method = 'automatic') {
+        // Emergency Protocol Check
+        if (await isPaused('jackpot')) {
+            logger.warn(`EMERGENCY_PAUSE: Draw for round ${roundId} aborted.`);
+            throw new Error('EMERGENCY_PAUSE: Jackpot operations are suspended.');
+        }
+
         const round = await JackpotRound.findById(roundId);
 
         if (!round) {
@@ -179,6 +192,9 @@ class JackpotService {
             // Create new round
             await this.createNewRound();
 
+            // Broadcast final results
+            await this.broadcastStats();
+
             logger.info(`Draw completed for round ${round.roundNumber}, ${winners.length} winners selected`);
 
             return winners;
@@ -186,6 +202,7 @@ class JackpotService {
             // Rollback on error
             round.status = 'active';
             await round.save();
+            await this.broadcastStats();
             throw error;
         }
     }
@@ -336,6 +353,7 @@ class JackpotService {
 
         // Emit update
         this.emitStatusUpdate(round);
+        await this.broadcastStats();
 
         return round;
     }
@@ -350,6 +368,7 @@ class JackpotService {
 
         // Emit status change
         this.emitStatusUpdate(round);
+        await this.broadcastStats();
 
         return round;
     }
@@ -376,8 +395,116 @@ class JackpotService {
         await round.save();
 
         logger.info(`Surplus withdrawn: ${amount} USDT from round ${round.roundNumber}`);
+        await this.broadcastStats();
 
         return amount;
+    }
+
+    // ============================================
+    // Real-Time Analytics Broadcast
+    // ============================================
+
+    async broadcastStats() {
+        try {
+            if (!this.io) return;
+
+            const activeRound = await JackpotRound.findOne({ status: 'active' }).sort({ roundNumber: -1 });
+            const previousRound = await JackpotRound.findOne({ status: 'completed' }).sort({ roundNumber: -1 });
+            const SystemConfig = require('../models/SystemConfig');
+            const config = await SystemConfig.findOne({ key: 'default' });
+
+            // Calculate auto-entry stats
+            const autoEntryUsersCount = await User.countDocuments({ 'settings.autoLuckyDraw': true });
+
+            // Historical totals
+            const historicalStats = await JackpotRound.aggregate([
+                { $match: { status: 'completed' } },
+                {
+                    $group: {
+                        _id: null,
+                        totalRevenue: { $sum: { $multiply: ["$ticketPrice", "$ticketsSold"] } },
+                        totalPrizes: { $sum: "$totalPrizePool" },
+                        totalSurplus: { $sum: "$surplus" }
+                    }
+                }
+            ]);
+
+            const history = historicalStats[0] || { totalRevenue: 0, totalPrizes: 0, totalSurplus: 0 };
+
+            const prizeDistribution = [
+                { rank: '1st', prize: '10,000 USDT', winners: 1 },
+                { rank: '2nd', prize: '5,000 USDT', winners: 1 },
+                { rank: '3rd', prize: '4,000 USDT', winners: 1 },
+                { rank: '4–10', prize: '1,000 USDT', winners: 7 },
+                { rank: '11–50', prize: '300 USDT', winners: 40 },
+                { rank: '51–100', prize: '120 USDT', winners: 50 },
+                { rank: '101–500', prize: '40 USDT', winners: 400 },
+                { rank: '501–1000', prize: '20 USDT', winners: 500 }
+            ];
+
+            const JackpotProtocol = require('../models/JackpotProtocol');
+            const protocols = await JackpotProtocol.find().lean();
+
+            // Map fields for frontend compatibility
+            const mappedProtocols = protocols.map(p => ({
+                ...p,
+                lastChangedBy: p.changedBy,
+                lastReason: p.reason
+            }));
+
+            const payload = {
+                activeDraw: activeRound ? {
+                    id: activeRound.roundNumber,
+                    ticketsSold: activeRound.ticketsSold,
+                    totalTickets: activeRound.totalTickets,
+                    ticketPrice: activeRound.ticketPrice,
+                    totalPool: activeRound.totalPrizePool,
+                    status: activeRound.status,
+                    progress: activeRound.progress
+                } : null,
+                previousDraw: previousRound ? {
+                    id: previousRound.roundNumber,
+                    blockNumber: previousRound.blockNumber || '0x00000',
+                    rngHash: previousRound.drawSeed || '0x00000',
+                    executionTime: previousRound.drawExecutedAt,
+                    txHash: previousRound.winners[0]?.transactionHash || null,
+                    topWinnerWallet: previousRound.winners[0]?.walletAddress,
+                    topPrizePaid: previousRound.winners[0]?.prize
+                } : null,
+                autoEntry: {
+                    totalUsers: autoEntryUsersCount,
+                    autoTicketsPurchased: activeRound ? activeRound.ticketsSold : 0, // Using actual tickets sold
+                    isEnabledGlobally: config?.luckyDraw?.autoEntryEnabled || false,
+                },
+                financials: {
+                    ticketRevenue: activeRound ? activeRound.ticketPrice * activeRound.ticketsSold : 0,
+                    prizeReserved: activeRound ? activeRound.totalPrizePool : 0,
+                    totalHistoricalRevenue: history.totalRevenue,
+                    totalHistoricalPrizes: history.totalPrizes,
+                    platformSurplus: history.totalSurplus
+                },
+                protocols: mappedProtocols,
+                distributionConfig: prizeDistribution,
+                emergencyFlags: config?.emergencyFlags || {},
+                timestamp: new Date().toISOString()
+            };
+
+            this.io.emit('admin:jackpot_stats_update', payload);
+        } catch (error) {
+            logger.error('Failed to broadcast jackpot stats:', error.message);
+        }
+    }
+
+    /**
+     * Broadcast administrative activity log
+     */
+    async broadcastActivity(log) {
+        if (!this.io || !log) return;
+
+        this.io.emit('admin:jackpot_activity', {
+            ...log,
+            timestamp: log.timestamp || new Date().toISOString()
+        });
     }
 
     // ============================================
@@ -395,6 +522,15 @@ class JackpotService {
             buyer: this.maskWallet(walletAddress),
             quantity,
             timestamp: new Date()
+        });
+
+        // Use the new broadcastActivity pattern for ticket sales as well if needed
+        this.io.emit('admin:jackpot_activity', {
+            type: 'TICKET_PURCHASE',
+            walletAddress,
+            quantity,
+            roundNumber: round.roundNumber,
+            timestamp: new Date().toISOString()
         });
     }
 

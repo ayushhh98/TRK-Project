@@ -3,6 +3,34 @@ const User = require('../models/User');
 const Game = require('../models/Game');
 const GuessRound = require('../models/GuessRound');
 const auth = require('../middleware/auth');
+const PracticeService = require('../services/practiceService');
+const { isPaused } = require('../utils/emergency');
+
+const emitAdminGameActivity = (req, game, user) => {
+    const io = req.app.get('io');
+    if (!io) return;
+
+    const payload = {
+        _id: game._id,
+        user: {
+            walletAddress: user.walletAddress,
+            email: user.email
+        },
+        gameType: game.gameType,
+        gameVariant: game.gameVariant,
+        betAmount: game.betAmount,
+        payout: game.payout,
+        isWin: game.isWin,
+        luckyNumber: game.luckyNumber,
+        pickedNumber: game.pickedNumber,
+        multiplier: game.multiplier,
+        status: game.status,
+        roundNumber: game.roundNumber,
+        timestamp: game.createdAt || new Date()
+    };
+
+    io.emit('admin:game_activity', payload);
+};
 
 const router = express.Router();
 
@@ -42,52 +70,20 @@ router.post('/bet', auth, async (req, res) => {
                 return res.status(400).json({ status: 'error', message: 'Insufficient practice balance' });
             }
 
-            // A. Round-Based Practice (Guess Variant)
-            if (gameVariant === 'guess') {
-                let round = await GuessRound.getCurrentRound();
-                if (!round) {
-                    round = await GuessRound.startNewRound(3600);
-                }
-
-                user.practiceBalance -= betAmount;
-                const game = new Game({
-                    user: user._id,
-                    gameType,
-                    gameVariant,
-                    betAmount,
-                    pickedNumber,
-                    multiplier: 8,
-                    status: 'pending',
-                    roundNumber: round.roundNumber
-                });
-
-                await game.save();
-                await user.save();
-
-                return res.status(200).json({
-                    status: 'success',
-                    message: 'Practice bet placed for current round',
-                    data: {
-                        game: {
-                            id: game._id,
-                            pickedNumber,
-                            gameVariant,
-                            status: 'pending',
-                            roundNumber: round.roundNumber,
-                            endTime: round.endTime
-                        },
-                        newBalance: user.practiceBalance
-                    }
-                });
-            }
-
-            // B. Immediate Practice (Other Variants)
+            // A. immediate Practice (All Variants including Guess)
             user.practiceBalance -= betAmount;
             let isWin = false;
             let luckyNumber = 0;
             let multiplier = 8;
+            let roundNumber = null;
 
-            if (gameVariant === 'dice') {
+            if (gameVariant === 'guess') {
+                const round = await GuessRound.getCurrentRound() || await GuessRound.startNewRound(3600);
+                roundNumber = round.roundNumber;
+                luckyNumber = Math.floor(Math.random() * 10);
+                isWin = pickedNumber === luckyNumber;
+                multiplier = 10;
+            } else if (gameVariant === 'dice') {
                 luckyNumber = Math.floor(Math.random() * 8) + 1;
                 isWin = pickedNumber === luckyNumber;
             } else if (gameVariant === 'spin') {
@@ -110,7 +106,8 @@ router.post('/bet', auth, async (req, res) => {
                 payout,
                 multiplier,
                 status: 'resolved',
-                resolvedAt: new Date()
+                resolvedAt: new Date(),
+                roundNumber
             });
 
             await game.save();
@@ -124,7 +121,12 @@ router.post('/bet', auth, async (req, res) => {
                     isWin, payout, luckyNumber, gameType, gameVariant,
                     newBalance: user.practiceBalance
                 });
+
+                // Trigger real-time stats update for admin
+                const practiceService = new PracticeService(io);
+                await practiceService.broadcastStats();
             }
+            emitAdminGameActivity(req, game, user);
 
             return res.status(200).json({
                 status: 'success',
@@ -138,6 +140,11 @@ router.post('/bet', auth, async (req, res) => {
         // 3. Handle Real Money Mode
         if (user.realBalances.game < betAmount) {
             return res.status(400).json({ status: 'error', message: 'Insufficient game balance' });
+        }
+
+        // Emergency Protocol Check
+        if (await isPaused('gameEngine')) {
+            return res.status(503).json({ status: 'error', code: 'EMERGENCY_PAUSE', message: 'Game Engine is currently suspended for safety protocols.' });
         }
 
         // A. Round-Based Real (Guess Variant)
@@ -161,6 +168,7 @@ router.post('/bet', auth, async (req, res) => {
 
             await game.save();
             await user.save();
+            emitAdminGameActivity(req, game, user);
 
             return res.status(200).json({
                 status: 'success',
@@ -294,6 +302,7 @@ router.post('/bet', auth, async (req, res) => {
                 });
             }
         }
+        emitAdminGameActivity(req, game, user);
 
         return res.status(200).json({
             status: 'success',

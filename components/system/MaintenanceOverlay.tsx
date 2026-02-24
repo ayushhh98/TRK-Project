@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useSocket } from "@/components/providers/Web3Provider";
+import { getApiBase } from "@/lib/api";
 import { Lock, AlertTriangle, RefreshCcw } from "lucide-react";
 import { usePathname } from "next/navigation";
 
@@ -24,7 +25,7 @@ export default function MaintenanceOverlay() {
     useEffect(() => {
         const checkStatus = async () => {
             try {
-                const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'}/api/content/system-status`);
+                const res = await fetch(`${getApiBase()}/api/content/system-status`);
                 if (!res.ok) {
                     throw new Error(`HTTP error! status: ${res.status}`);
                 }

@@ -780,7 +780,8 @@ export const apiRequest = async (
                         isRefreshing = false;
                         removeToken();
                         if (typeof window !== 'undefined') {
-                            window.location.href = '/auth';
+                            const isNextAdmin = window.location.pathname.startsWith('/admin');
+                            window.location.href = isNextAdmin ? '/admin/login' : '/auth';
                         }
                         throw new Error('Session expired. Please log in again.');
                     }

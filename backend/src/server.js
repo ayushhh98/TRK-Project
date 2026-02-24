@@ -43,6 +43,8 @@ const adminRoutes = require('./routes/admin');
 const auditRoutes = require('./routes/audit');
 const contentRoutes = require('./routes/content');
 const notificationRoutes = require('./routes/notifications');
+const economyRoutes = require('./routes/economy');
+const gameGovernanceRoutes = require('./routes/gameGovernance');
 
 const app = express();
 const server = http.createServer(app);
@@ -183,8 +185,12 @@ app.use('/api/notifications', notificationRoutes);
 // Initialize jackpot service with Socket.IO
 luckyDrawRoutes.initializeService(io);
 adminRoutes.initializeService(io);
+gameGovernanceRoutes.initializeService(io);
 
 app.use('/api/admin', adminRoutes); // Admin routes (protected by RBAC)
+app.use('/api/admin/jackpot', luckyDrawRoutes);
+app.use('/api/admin/economics', economyRoutes);
+app.use('/api/admin/games/protocol', gameGovernanceRoutes);
 app.use('/api/admin/emergency', require('./routes/emergency')); // Emergency controls
 app.use('/api/audit', auditRoutes); // Audit log routes (admin only)
 
@@ -208,6 +214,11 @@ app.use('*', (req, res) => {
 // Global error handler
 app.use((err, req, res, next) => {
     console.error('Error:', err);
+    try {
+        const fs = require('fs');
+        fs.appendFileSync('error.log', `[${new Date().toISOString()}] ${req.method} ${req.url} - ${err.message}\n${err.stack}\n\n`);
+    } catch (e) { }
+
     res.status(err.statusCode || 500).json({
         status: 'error',
         message: err.message || 'Internal server error'

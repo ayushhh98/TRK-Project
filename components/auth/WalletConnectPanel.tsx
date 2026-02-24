@@ -237,9 +237,22 @@ export function WalletConnectPanel({
 
                 <div className="w-full space-y-4 relative z-10">
                     <Button
+                        onClick={() => handleSelect("trust")}
+                        disabled={isLoading}
+                        className="h-16 w-full rounded-2xl bg-[#3375BB] text-white hover:bg-[#2a629d] font-black text-lg shadow-[0_15px_30px_rgba(51,117,187,0.25)] border-t border-white/20 transition-all active:scale-95 flex items-center justify-center gap-3"
+                    >
+                        <div className="h-6 w-6 rounded bg-white flex items-center justify-center">
+                            <svg className="h-4 w-4 text-[#3375BB]" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M12 2L4 6v6c0 5.5 3.8 10.7 8 12 4.2-1.3 8-6.5 8-12V6l-8-4z" />
+                            </svg>
+                        </div>
+                        Connect Trust Wallet
+                    </Button>
+
+                    <Button
                         onClick={handleWalletConnect}
                         disabled={isLoading}
-                        className="h-16 w-full rounded-2xl bg-yellow-400 text-black hover:bg-yellow-300 font-black text-lg shadow-[0_15px_30px_rgba(250,204,21,0.25)] border-t border-white/20 transition-all active:scale-95"
+                        className="h-14 w-full rounded-2xl bg-white/5 text-white/70 hover:bg-white/10 font-bold text-sm border border-white/10 transition-all active:scale-95"
                     >
                         {isLoading ? (
                             <span className="flex items-center gap-2">
@@ -247,7 +260,7 @@ export function WalletConnectPanel({
                             </span>
                         ) : (
                             <span className="flex items-center gap-3">
-                                <ShieldCheck className="h-5 w-5 opacity-60" /> Secure Connect
+                                <ShieldCheck className="h-4 w-4 opacity-40" /> Other Wallets
                             </span>
                         )}
                     </Button>

@@ -53,7 +53,7 @@ const processDailyRoi = async (io) => {
                         const mainCommission = totalCommission - luckyCommission;
 
                         // Update balances
-                        upline.realBalances.roiOnRoi = (upline.realBalances.roiOnRoi || 0) + mainCommission;
+                        upline.realBalances.cashbackROI = (upline.realBalances.cashbackROI || 0) + mainCommission;
                         upline.realBalances.luckyDrawWallet = (upline.realBalances.luckyDrawWallet || 0) + luckyCommission;
 
                         upline.rewardPoints += totalCommission; // Tracking total gross reward
@@ -67,7 +67,7 @@ const processDailyRoi = async (io) => {
                                 commissionType: 'roi_on_roi',
                                 amount: mainCommission,
                                 luckyAmount: luckyCommission,
-                                newBalance: upline.realBalances.roiOnRoi,
+                                newBalance: upline.realBalances.cashbackROI,
                                 newLuckyBalance: upline.realBalances.luckyDrawWallet
                             });
                         }

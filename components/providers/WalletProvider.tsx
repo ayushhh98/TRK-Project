@@ -13,6 +13,7 @@ import { dedupeByKey, mergeUniqueByKey } from "@/lib/collections";
 
 import { CONTRACTS } from "@/config/contracts";
 import { socket } from "@/components/providers/Web3Provider";
+import { useConfig, SystemConfig } from "@/hooks/useConfig";
 import { motion, AnimatePresence } from "framer-motion";
 import { Users, CheckCircle2, AlertCircle, ShieldCheck, Lock, Zap, History, TrendingUp, RefreshCw, WalletIcon, ArrowUpRight, ArrowDownLeft, Coins } from "lucide-react";
 import { Button } from "@/components/ui/Button";
@@ -27,8 +28,10 @@ interface GameHistoryItem {
     won: boolean;
     payout: number;
     timestamp: string;
+    createdAt?: string;
     gameType: 'dice' | 'crash' | 'spin' | 'mines' | 'plinko' | 'matrix' | 'guess';
     roundId?: string; // On-chain round ID for claiming
+    roundNumber?: number;
     status?: string | null;
 }
 
@@ -47,33 +50,28 @@ interface WithdrawalItem {
 }
 
 interface RealBalances {
-    cash: number;
-    game: number;
-    cashback: number;
-    lucky: number;
-    directLevel: number;
+    game: number;          // Wallet 2
+    cashbackROI: number;   // Wallet 4 (Internal)
+    luckyDrawWallet: number; // Wallet 5 (Internal)
+
+    // Tracking for Wallet 1 destination
     winners: number;
-    roiOnRoi: number;
-    club: number;
-    teamWinners: number;
-    walletBalance: number;
-    luckyDrawWallet: number;
-    totalUnified: number; // Aggregated internal assets
-    grandTotal: number;    // External USDT + Internal Unified
+    directLevel: number;
+
+    // Operational/Transit
+    cash: number;
+
+    totalUnified: number; // Sum of all internal
+    grandTotal: number;    // Sum of all internal + External USDT
 }
 
 const DEFAULT_REAL_BALANCES: RealBalances = {
-    cash: 0,
     game: 0,
-    cashback: 0,
-    lucky: 0,
-    directLevel: 0,
-    winners: 0,
-    roiOnRoi: 0,
-    club: 0,
-    teamWinners: 0,
-    walletBalance: 0,
+    cashbackROI: 0,
     luckyDrawWallet: 0,
+    winners: 0,
+    directLevel: 0,
+    cash: 0,
     totalUnified: 0,
     grandTotal: 0
 };
@@ -84,7 +82,7 @@ const toSafeNumber = (value: unknown): number => {
 };
 
 const buildRealBalances = (
-    raw?: Partial<RealBalances> | null,
+    raw?: Partial<RealBalances> & { cashback?: number, roiOnRoi?: number, club?: number, teamWinners?: number } | null,
     externalUsdt = 0,
     overrides?: Partial<RealBalances>
 ): RealBalances => {
@@ -94,32 +92,26 @@ const buildRealBalances = (
         ...(overrides || {})
     };
 
+    // Mapping legacy fields if present in raw data
     const normalized: RealBalances = {
-        cash: toSafeNumber(merged.cash),
         game: toSafeNumber(merged.game),
-        cashback: toSafeNumber(merged.cashback),
-        lucky: toSafeNumber(merged.lucky),
-        directLevel: toSafeNumber(merged.directLevel),
-        winners: toSafeNumber(merged.winners),
-        roiOnRoi: toSafeNumber(merged.roiOnRoi),
-        club: toSafeNumber(merged.club),
-        teamWinners: toSafeNumber(merged.teamWinners),
-        walletBalance: toSafeNumber(merged.walletBalance),
+        cashbackROI: toSafeNumber(merged.cashbackROI || (toSafeNumber(raw?.cashback) + toSafeNumber(raw?.roiOnRoi) + toSafeNumber(raw?.club))),
         luckyDrawWallet: toSafeNumber(merged.luckyDrawWallet),
+        winners: toSafeNumber(merged.winners || toSafeNumber(raw?.teamWinners)),
+        directLevel: toSafeNumber(merged.directLevel),
+        cash: toSafeNumber(merged.cash),
         totalUnified: 0,
         grandTotal: 0
     };
 
     normalized.totalUnified =
-        normalized.cash +
         normalized.game +
-        normalized.cashback +
-        normalized.lucky +
-        normalized.directLevel +
+        normalized.cashbackROI +
+        normalized.luckyDrawWallet +
         normalized.winners +
-        normalized.roiOnRoi +
-        normalized.club +
-        normalized.teamWinners;
+        normalized.directLevel +
+        normalized.cash;
+
     normalized.grandTotal = normalized.totalUnified + toSafeNumber(externalUsdt);
 
     return normalized;
@@ -235,6 +227,10 @@ interface WalletContextType {
     setShowReferralPrompt: (show: boolean) => void;
     applyReferral: (code: string) => Promise<boolean>;
     topupLuckyWallet: (fromWallet: string, amount: number) => Promise<any>;
+
+    // System Configuration
+    systemConfig: SystemConfig | null;
+    isConfigLoading: boolean;
 }
 
 const WalletContext = createContext<WalletContextType | undefined>(undefined);
@@ -285,6 +281,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     const { switchChain, switchChainAsync } = useSwitchChain();
     const { writeContractAsync } = useWriteContract();
     const publicClient = usePublicClient();
+    const { config: systemConfig, isLoading: isConfigLoading } = useConfig();
 
     // Dynamic Address Helper
     const addresses = React.useMemo(() => {
@@ -654,13 +651,12 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
 
             setRealBalances(prev => {
                 const source = user?.realBalances || prev;
-                const sourceCashback = toSafeNumber(source.cashback);
-                const sourceWalletBalance = toSafeNumber(source.walletBalance);
+                const sourceCashbackROI = toSafeNumber(source.cashbackROI);
 
                 return buildRealBalances(source, externalUsdt, {
                     game: gBal,
-                    cashback: Math.max(onChainCashback, sourceCashback),
-                    walletBalance: Math.max(onChainWalletBalance, sourceWalletBalance)
+                    cashbackROI: Math.max(onChainCashback, sourceCashbackROI),
+                    winners: source.winners // Winners/DirectLevel are usually off-chain credited pending claim
                 });
             });
             setPracticeBalance(Number(backendPractice).toFixed(2));
@@ -717,9 +713,11 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
                                     prediction: g.pickedNumber,
                                     won: g.isWin,
                                     payout: g.payout,
-                                    timestamp: g.createdAt,
+                                    timestamp: g.createdAt || g.timestamp,
+                                    createdAt: g.createdAt,
                                     gameType: mapGameVariant(g.gameVariant),
-                                    roundId: g.roundId
+                                    roundId: g.roundId,
+                                    roundNumber: g.roundNumber
                                 }));
                                 const deduped = dedupeByKey(mappedHistory, (h) => h.id || h.hash);
                                 setGameHistory(deduped);
@@ -1045,7 +1043,6 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     // Handle Wagmi connection changes -> Login Flow
     const login = async (force: boolean = false) => {
         if (isDisconnectingRef.current || loginInProgressRef.current) {
-            // console.log("[AUTH] Login already in progress or disconnecting.");
             return;
         }
 
@@ -1056,15 +1053,18 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
         }
 
         loginInProgressRef.current = true;
+        setIsLoading(true);
 
         if (!isWagmiConnected || !wagmiAddress) {
             loginInProgressRef.current = false;
+            setIsLoading(false);
             return;
         }
 
         const connectRequested = localStorage.getItem(WALLET_CONNECT_REQUEST_KEY) === "true";
         if (!force && !connectRequested && !isSwitchingWallet) {
             loginInProgressRef.current = false;
+            setIsLoading(false);
             return;
         }
 
@@ -1120,21 +1120,17 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
             const pendingReferralCode = localStorage.getItem("trk_referrer_code")?.trim() || "";
             const needsReferralApply = !!(effectiveUser && effectiveUser.role === 'player' && !effectiveUser.referredBy && pendingReferralCode);
 
-            // If referral gate is already open and there is no code yet, do not keep
-            // calling /auth/nonce. Wait for the user to submit a valid referral code.
             if (!force && showReferralGate && !pendingReferralCode) {
                 setWalletConnectRequested(false);
                 return;
             }
 
             if (effectiveToken && effectiveUser && !needsReferralApply) {
-                // If the valid session matches the connected wallet, we can reuse it.
                 if (effectiveUser.walletAddress?.toLowerCase() === wagmiAddress.toLowerCase()) {
                     if (!user || token !== effectiveToken) {
                         setUser(effectiveUser);
                         setToken(effectiveToken);
 
-                        // Also restore balance states to avoid UI glitches/errors
                         if (effectiveUser.practiceBalance !== undefined) {
                             setPracticeBalance(effectiveUser.practiceBalance.toString());
                         }
@@ -1145,34 +1141,26 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
                     }
                 }
 
-                // If the user explicitly clicked connect (e.g., admin login), re-verify to refresh role/session.
                 if (!connectRequested && !isSwitchingWallet) {
                     setWalletConnectRequested(false);
                     return;
                 }
             } else {
-                // If switching wallet, or applying referral, we proceed to signature.
-                // Otherwise, if connect wasn't explicitly requested, we don't auto-switch.
                 if (!isSwitchingWallet && !connectRequested && !needsReferralApply) return;
             }
 
-            loginInProgressRef.current = true;
             toastId = toast.loading("Establishing Secure Uplink...");
-
-            // 1. Context Stability Check
-            if (!walletClient) {
-                // console.log("Wallet client not ready yet. Continuing with signer...");
-            }
 
             // 2. Network Enforcement (BSC)
             const bscChainId = 56;
-            const testnetChainId = 97;
             const targetChainId = process.env.NEXT_PUBLIC_CHAIN_ID ? parseInt(process.env.NEXT_PUBLIC_CHAIN_ID) : bscChainId;
 
             if (chainId !== targetChainId) {
                 toast.loading("Switching to Optimized Network...", { id: toastId });
                 try {
                     await switchChainAsync({ chainId: targetChainId });
+                    // Provide buffer for wallet providers to stabilize after chain switch
+                    await new Promise(resolve => setTimeout(resolve, 1500));
                 } catch (switchErr: any) {
                     if (switchErr instanceof UserRejectedRequestError || switchErr.code === 4001 || switchErr.message?.includes("User rejected")) {
                         toast.dismiss(toastId);
@@ -1206,7 +1194,6 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
                 throw nonceError;
             }
 
-            // Handle both wrapped and unwrapped response for backward/forward compatibility
             const effectiveNonceData = nonceRes.data || nonceRes;
 
             if (nonceRes.status !== 'success' || !effectiveNonceData.message) {
@@ -1215,9 +1202,6 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
             }
 
             const nonceMessage = effectiveNonceData.message;
-            console.log('[DEBUG AUTH] Fetched Nonce Data:', { nonceRes, effectiveNonceData });
-            console.log('[DEBUG AUTH] Message to sign:', nonceMessage);
-            console.log('[DEBUG AUTH] Account:', wagmiAddress);
 
             // 4. Request Signature
             toast.loading("Awaiting Quantum Signature...", {
@@ -1226,7 +1210,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
             });
 
             // Small cooldown for provider stability after potential network switch
-            await new Promise(resolve => setTimeout(resolve, 500));
+            await new Promise(resolve => setTimeout(resolve, 800));
 
             const signPromise = signMessageWithFallback(
                 nonceMessage,
@@ -1242,13 +1226,10 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
             const signature = await Promise.race([signPromise, timeoutPromise]);
             if (timeoutId) clearTimeout(timeoutId);
 
-            console.log('[DEBUG AUTH] Generated Signature:', signature);
-
             // 5. Verification
             toast.loading("Decrypting Identity...", { id: toastId });
 
             const verifyRes = await authAPI.verify(wagmiAddress, signature as string);
-            console.log('[DEBUG AUTH] Verification Result:', verifyRes);
 
             if (verifyRes.status !== 'success') {
                 console.error('[DEBUG AUTH] Verification Error Detail:', verifyRes);
@@ -1286,9 +1267,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
                 );
                 setPracticeBalance(userData.practiceBalance?.toString() || "0.00");
 
-                // Force Mandatory Referral Gate if missing (for player role only)
                 if (requiresReferralGate) {
-                    console.log("[AUTH] Player missing referral. Activating Mandatory Gate.");
                     setShowReferralGate(true);
                 }
 
@@ -1298,7 +1277,6 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
                 localStorage.setItem("trk_wallet_address", wagmiAddress);
                 setSessionScope(currentScope);
 
-                // Notify other modules (Socket, etc)
                 window.dispatchEvent(new CustomEvent('trk_auth_change'));
 
                 toast.dismiss(toastId);
@@ -1309,31 +1287,22 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
                 localStorage.removeItem(LOGIN_COOLDOWN_KEY);
                 loginInProgressRef.current = false;
 
-                // Route based on login scope to keep admin/user sessions isolated.
                 const path = window.location.pathname;
                 const isAdminLoginScope = currentScope === "admin";
                 const isAuthGate = path === "/" || path === "/auth" || path === "/admin/login";
 
-                // Strict Role-Based Routing
                 if (isAdminRole) {
-                    // Only force admin panel if they logged in via admin gate
                     if (isAdminLoginScope) {
                         router.replace("/admin");
+                    } else if (isAuthGate) {
+                        router.replace("/");
                     } else {
-                        // Allow admins to access the dashboard/home like normal users
-                        if (isAuthGate) {
-                            router.replace("/");
-                        } else {
-                            refreshUser();
-                        }
+                        refreshUser();
                     }
                 } else {
-                    // Regular users: route based on referral status
                     if (requiresReferralGate) {
-                        // Show referral modal; don't navigate away
-                        console.log("[AUTH] Referral required â€” keeping user here for referral gate.");
+                        console.log("[AUTH] Referral required — keeping user here for referral gate.");
                     } else {
-                        // Referral satisfied or not needed â†’ dashboard
                         if (pendingReferralCode && userData?.role === 'player') {
                             toast.success("Registration Completed Successfully", {
                                 description: "Referral code verified. Redirecting to dashboard."
@@ -1349,14 +1318,12 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
             }
         } catch (error: any) {
             loginInProgressRef.current = false;
-            // Graceful exit for common user actions or expected races
+            setIsLoading(false);
             if (isDisconnectingRef.current) return;
 
-            // Categorize Errors
             const isUserReject = error instanceof UserRejectedRequestError || error.code === 4001 || error.message?.includes("User rejected");
             const isNetworkErr = error.message?.includes("Gateway") || error.message?.includes("fetch");
-            const isRateLimited = error.message?.toLowerCase().includes("too many requests")
-                || error.message?.includes("429");
+            const isRateLimited = error.message?.toLowerCase().includes("too many requests") || error.message?.includes("429");
             const isSignatureTimeout = error.message?.includes("Signature Request Timed Out");
 
             if (!isUserReject) {
@@ -1364,9 +1331,11 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
             }
 
             if (isUserReject) {
+                toast.dismiss(toastId);
                 toast.info("Uplink Cancelled", { description: "You rejected the signature request." });
                 setWalletConnectRequested(false);
             } else if (isSignatureTimeout) {
+                toast.dismiss(toastId);
                 toast.error("Signature timed out", {
                     description: "No signature received. Open your wallet and approve the request.",
                     action: {
@@ -1382,44 +1351,26 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
                     }
                 });
             } else if (isRateLimited) {
+                toast.dismiss(toastId);
                 const cooldownMs = 15 * 60 * 1000;
                 localStorage.setItem(LOGIN_COOLDOWN_KEY, String(Date.now() + cooldownMs));
-                toast.error("Rate limit reached", {
-                    description: "Please wait 15 minutes before trying again."
-                });
+                toast.error("Rate limit reached", { description: "Please wait 15 minutes before trying again." });
             } else if (isNetworkErr) {
+                toast.dismiss(toastId);
                 toast.error("Network Congestion", {
                     description: "Server is taking too long to respond. Check your connection.",
-                    action: {
-                        label: "Retry",
-                        onClick: () => login()
-                    }
+                    action: { label: "Retry", onClick: () => login() }
                 });
             } else {
+                toast.dismiss(toastId);
                 toast.error("Authentication Error", {
                     description: error.message || "An unexpected error occurred. Please try again.",
-                    action: {
-                        label: "Retry",
-                        onClick: () => login()
-                    }
+                    action: { label: "Retry", onClick: () => login() }
                 });
 
-                // Trigger Referral Gate if error explicitly requires it
-                // We check for various forms of the error message to be robust
                 const msg = error.message || "";
-                if (
-                    error.data?.requiresReferral ||
-                    msg.includes("Referral code is required") ||
-                    msg.includes("referral code to join")
-                ) {
-                    console.log("[AUTH] Referral required. Activating gate...");
-                    if (toastId !== undefined) toast.dismiss(toastId);
-
-                    // Show a specific, helpful message instead of an error
-                    toast.info("Referral Code Required", {
-                        description: "Please enter a valid referral code to complete your registration."
-                    });
-
+                if (error.data?.requiresReferral || msg.includes("Referral code is required") || msg.includes("referral code to join")) {
+                    toast.info("Referral Code Required", { description: "Please enter a valid referral code to complete your registration." });
                     setShowReferralGate(true);
                     return;
                 }
@@ -1429,15 +1380,14 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
                 setIsSwitchingWallet(false);
             }
 
-            // Cleanup partial state - ONLY IF WE DON'T HAVE A TOKEN ALREADY
-            // If we failed to switch wallets, don't kill the existing session!
-            if (!effectiveToken) {
+            if (!token && !getToken()) {
                 removeToken();
                 setUser(null);
                 setToken(null);
             }
         } finally {
             loginInProgressRef.current = false;
+            setIsLoading(false);
             setWalletConnectRequested(false);
         }
     };
@@ -1915,7 +1865,9 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
                     won: isWin,
                     payout,
                     timestamp: new Date().toISOString(),
+                    createdAt: new Date().toISOString(),
                     gameType,
+                    roundNumber: revealResponse.data.game.roundNumber,
                     status: gameStatus
                 };
 
@@ -1999,7 +1951,9 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
                     won: isWin,
                     payout,
                     timestamp: new Date().toISOString(),
-                    gameType
+                    createdAt: new Date().toISOString(),
+                    gameType,
+                    roundNumber: revealResponse.data.game.roundNumber
                 };
                 setGameHistory((prev) =>
                     mergeUniqueByKey([historyItem], prev, (h) => h.id || h.hash).slice(0, 50)
@@ -2737,7 +2691,9 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
                 showReferralPrompt,
                 setShowReferralPrompt,
                 applyReferral,
-                topupLuckyWallet
+                topupLuckyWallet,
+                systemConfig,
+                isConfigLoading
             }), [
                 user,
                 practiceBalance,
@@ -2765,7 +2721,9 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
                 isWagmiConnected,
                 showReferralPrompt,
                 applyReferral,
-                topupLuckyWallet
+                topupLuckyWallet,
+                systemConfig,
+                isConfigLoading
             ])}
         >
             {children}
