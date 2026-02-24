@@ -561,8 +561,7 @@ export default function AdminGameResults() {
                         </motion.div>
                     </div>
                 )}
+            </AnimatePresence>
         </div>
-         </AnimatePresence >
-     </div >
     );
 }
