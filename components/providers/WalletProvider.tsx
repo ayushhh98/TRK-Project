@@ -58,6 +58,11 @@ interface RealBalances {
     winners: number;
     directLevel: number;
 
+    // Sub-balances for specific streams
+    club: number;
+    roiOnRoi: number;
+    cashback: number;
+
     // Operational/Transit
     cash: number;
 
@@ -71,6 +76,9 @@ const DEFAULT_REAL_BALANCES: RealBalances = {
     luckyDrawWallet: 0,
     winners: 0,
     directLevel: 0,
+    club: 0,
+    roiOnRoi: 0,
+    cashback: 0,
     cash: 0,
     totalUnified: 0,
     grandTotal: 0
@@ -82,7 +90,7 @@ const toSafeNumber = (value: unknown): number => {
 };
 
 const buildRealBalances = (
-    raw?: Partial<RealBalances> & { cashback?: number, roiOnRoi?: number, club?: number, teamWinners?: number } | null,
+    raw?: Partial<RealBalances> & { teamWinners?: number } | null,
     externalUsdt = 0,
     overrides?: Partial<RealBalances>
 ): RealBalances => {
@@ -95,7 +103,10 @@ const buildRealBalances = (
     // Mapping legacy fields if present in raw data
     const normalized: RealBalances = {
         game: toSafeNumber(merged.game),
-        cashbackROI: toSafeNumber(merged.cashbackROI || (toSafeNumber(raw?.cashback) + toSafeNumber(raw?.roiOnRoi) + toSafeNumber(raw?.club))),
+        club: toSafeNumber(merged.club),
+        roiOnRoi: toSafeNumber(merged.roiOnRoi),
+        cashback: toSafeNumber(merged.cashback),
+        cashbackROI: toSafeNumber(merged.cashbackROI || (toSafeNumber(merged.cashback) + toSafeNumber(merged.roiOnRoi) + toSafeNumber(merged.club))),
         luckyDrawWallet: toSafeNumber(merged.luckyDrawWallet),
         winners: toSafeNumber(merged.winners || toSafeNumber(raw?.teamWinners)),
         directLevel: toSafeNumber(merged.directLevel),
