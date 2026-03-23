@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { getToken } from "@/lib/api";
 import { useAdminSocket } from "@/hooks/useAdminSocket";
 import { cn } from "@/lib/utils";
+import { RoiConfigModal } from "@/components/admin/RoiConfigModal";
 
 function fmt(n?: number, d = 2) { return (n ?? 0).toLocaleString(undefined, { maximumFractionDigits: d }); }
 
@@ -65,7 +66,7 @@ export default function RealTimeROIMonitor() {
     const roi2 = data?.roiOnRoi ?? {};
 
     return (
-        <div className="min-h-screen bg-black text-white/90 space-y-10 pb-32">
+        <div className="h-[calc(100vh-80px)] overflow-y-auto overflow-x-hidden bg-black text-white/90 space-y-10 pb-10 scrollbar-hide">
             {/* Yield Stabilizer Header */}
             <div className="relative group overflow-hidden rounded-3xl border border-rose-500/10 bg-gradient-to-br from-[#0c0c0c] to-black p-10">
                 <div className="absolute top-0 right-0 w-[600px] h-[600px] bg-rose-500/5 blur-[120px] rounded-full -translate-y-1/2 translate-x-1/2" />
@@ -89,18 +90,21 @@ export default function RealTimeROIMonitor() {
                         </p>
                     </div>
 
-                    <div className="bg-black/60 backdrop-blur-xl border border-white/5 rounded-[32px] p-6 flex items-center gap-6 shadow-2xl">
-                        <div className="text-right">
-                            <div className="text-[10px] font-black text-white/20 uppercase tracking-[0.2em] mb-1">Chain Connection</div>
-                            <div className={cn("text-xs font-black italic uppercase tracking-widest flex items-center justify-end gap-2", connectionStatus === 'connected' ? "text-rose-400" : "text-red-500")}>
-                                {connectionStatus === 'connected' ? 'MAINNET_SYNC_LIVE' : 'LINK_TERMINATED'}
-                                <Radio className={cn("h-3 w-3", connectionStatus === 'connected' && "animate-pulse")} />
+                    <div className="flex flex-col items-end gap-4 z-10">
+                        <RoiConfigModal />
+                        <div className="bg-black/60 backdrop-blur-xl border border-white/5 rounded-[32px] p-6 flex items-center gap-6 shadow-2xl">
+                            <div className="text-right">
+                                <div className="text-[10px] font-black text-white/20 uppercase tracking-[0.2em] mb-1">Chain Connection</div>
+                                <div className={cn("text-xs font-black italic uppercase tracking-widest flex items-center justify-end gap-2", connectionStatus === 'connected' ? "text-rose-400" : "text-red-500")}>
+                                    {connectionStatus === 'connected' ? 'MAINNET_SYNC_LIVE' : 'LINK_TERMINATED'}
+                                    <Radio className={cn("h-3 w-3", connectionStatus === 'connected' && "animate-pulse")} />
+                                </div>
+                                {lastUpdated && <div className="text-[8px] font-mono text-white/10 mt-1">L_UPD: {lastUpdated.toLocaleTimeString()}</div>}
                             </div>
-                            {lastUpdated && <div className="text-[8px] font-mono text-white/10 mt-1">L_UPD: {lastUpdated.toLocaleTimeString()}</div>}
-                        </div>
-                        <div className="h-12 w-[1px] bg-white/10" />
-                        <div className="h-16 w-16 rounded-2xl bg-rose-500/10 flex items-center justify-center border border-rose-500/20 shadow-[0_0_30px_rgba(244,63,94,0.1)]">
-                            <ShieldCheck className="h-8 w-8 text-rose-500" />
+                            <div className="h-12 w-[1px] bg-white/10" />
+                            <div className="h-16 w-16 rounded-2xl bg-rose-500/10 flex items-center justify-center border border-rose-500/20 shadow-[0_0_30px_rgba(244,63,94,0.1)]">
+                                <ShieldCheck className="h-8 w-8 text-rose-500" />
+                            </div>
                         </div>
                     </div>
                 </div>

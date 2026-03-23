@@ -172,7 +172,7 @@ export default function RoiOnRoiPage() {
             <div className="fixed inset-0 overflow-hidden pointer-events-none">
                 <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-indigo-600/10 blur-[120px] rounded-full" />
                 <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-violet-600/10 blur-[120px] rounded-full" />
-                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full h-full bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20 brightness-100 contrast-150" />
+                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full h-full bg-[url('/noise.svg')] opacity-20 brightness-100 contrast-150" />
             </div>
 
             {/* Premium Header */}
@@ -524,11 +524,13 @@ export default function RoiOnRoiPage() {
                             <p className="text-sm text-white/40 font-medium leading-relaxed">
                                 Elite Dividends is a true leverage engine. By helping your team activate their Cashback Protection, you inherently increase your personal yield velocity.
                             </p>
-                            <Button className="w-full h-14 bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 hover:bg-indigo-500 hover:text-black font-black uppercase tracking-widest rounded-2xl transition-all duration-500 group/btn">
-                                <span className="flex items-center gap-2">
-                                    Enlist New Partners <ArrowUpRight className="h-4 w-4 group-hover/btn:translate-x-1 group-hover/btn:-translate-y-1 transition-transform" />
-                                </span>
-                            </Button>
+                            <Link href="/dashboard/referral" className="block w-full">
+                                <Button className="w-full h-14 bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 hover:bg-indigo-500 hover:text-black font-black uppercase tracking-widest rounded-2xl transition-all duration-500 group/btn">
+                                    <span className="flex items-center gap-2">
+                                        Enlist New Partners <ArrowUpRight className="h-4 w-4 group-hover/btn:translate-x-1 group-hover/btn:-translate-y-1 transition-transform" />
+                                    </span>
+                                </Button>
+                            </Link>
                         </div>
                     </Card>
                 </div>

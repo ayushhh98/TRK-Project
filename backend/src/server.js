@@ -192,8 +192,8 @@ app.use('/api/admin/jackpot', luckyDrawRoutes);
 app.use('/api/admin/economics', economyRoutes);
 app.use('/api/admin/games/protocol', gameGovernanceRoutes);
 app.use('/api/admin/emergency', require('./routes/emergency')); // Emergency controls
+app.use('/api/admin/system', require('./routes/system_config')); // Super Admin Master config
 app.use('/api/audit', auditRoutes); // Audit log routes (admin only)
-
 // Health check
 app.get('/api/health', (req, res) => {
     res.status(200).json({

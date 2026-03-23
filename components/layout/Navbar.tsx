@@ -23,6 +23,7 @@ export function Navbar() {
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
     const [isProfileOpen, setIsProfileOpen] = useState(false);
     const { isConnected, address, user, disconnect, connect } = useWallet();
+    const [mounted, setMounted] = useState(false);
 
     const displayName = user?.walletAddress
         ? `${user.walletAddress.slice(0, 6)}...${user.walletAddress.slice(-4)}`
@@ -33,6 +34,7 @@ export function Navbar() {
         : (user?.email?.charAt(0).toUpperCase() || "O");
 
     useEffect(() => {
+        setMounted(true);
         const handleScroll = () => {
             setIsScrolled(window.scrollY > 20);
         };
@@ -54,6 +56,8 @@ export function Navbar() {
             router.push("/");
         }
     };
+
+    if (!mounted) return <div className="h-20 bg-transparent" />;
 
     return (
         <nav className={`fixed top-0 left-0 right-0 z-[100] transition-all duration-300 ${isScrolled ? "py-4 bg-black/60 backdrop-blur-xl border-b border-white/5" : "py-6 bg-transparent"

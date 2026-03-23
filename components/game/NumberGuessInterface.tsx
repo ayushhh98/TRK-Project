@@ -33,42 +33,80 @@ export function NumberGuessInterface({ onPlaceEntry, isProcessing, lastResult, c
 
     const [timeLeft, setTimeLeft] = useState(0);
     const [currentRound, setCurrentRound] = useState<any>(null);
+    const [isSyncing, setIsSyncing] = useState(false);
+    const { socket, refreshUser } = useWallet();
 
     // Fetch and sync round timer
-    useEffect(() => {
-        const fetchRound = async () => {
-            try {
-                const res = await apiRequest('/game/round');
-                if (res.status === 'success') {
-                    setCurrentRound(res.data);
-                    const end = new Date(res.data.endTime).getTime();
-                    const now = new Date().getTime();
-                    setTimeLeft(Math.max(0, Math.floor((end - now) / 1000)));
-                }
-            } catch (err) {
-                console.error("Failed to fetch round:", err);
+    const fetchRound = async () => {
+        try {
+            const res = await apiRequest('/game/round');
+            if (res.status === 'success') {
+                setCurrentRound(res.data);
+                const end = new Date(res.data.endTime).getTime();
+                const now = new Date().getTime();
+                const diff = Math.max(0, Math.floor((end - now) / 1000));
+                setTimeLeft(diff);
+                setIsSyncing(false);
             }
-        };
+        } catch (err) {
+            console.error("Failed to fetch round:", err);
+        }
+    };
 
+    useEffect(() => {
         fetchRound();
-        const pollInterval = setInterval(fetchRound, 10000); // Poll every 10s to sync
 
+        if (socket) {
+            // Listen for global round events
+            const onRoundUpdate = (data: any) => {
+                console.log("[SOCKET] Round Update Received:", data);
+                setCurrentRound(data);
+                const end = new Date(data.endTime).getTime();
+                const now = new Date().getTime();
+                setTimeLeft(Math.max(0, Math.floor((end - now) / 1000)));
+                setIsSyncing(false);
+                
+                // If it's a resolution, refresh history too
+                if (data.luckyNumber !== undefined) {
+                    refreshUser();
+                }
+            };
+
+            socket.on('round:new', onRoundUpdate);
+            socket.on('round_resolved', (data: any) => {
+                console.log("[SOCKET] Round Resolved:", data);
+                setIsSyncing(true);
+                // Brief delay to allow backend to finish history processing
+                setTimeout(() => {
+                    fetchRound();
+                    refreshUser();
+                }, 2000);
+            });
+
+            return () => {
+                socket.off('round:new');
+                socket.off('round_resolved');
+            };
+        }
+    }, [socket]);
+
+    useEffect(() => {
         const timer = setInterval(() => {
             setTimeLeft(prev => {
                 if (prev <= 1) {
-                    fetchRound(); // Refresh when timer hits zero
-                    setActiveTab("results"); // AUTO-SWITCH to results tab when timer ends
+                    if (!isSyncing) {
+                        setIsSyncing(true);
+                        // Polling fallback if socket fails
+                        setTimeout(fetchRound, 3000);
+                    }
                     return 0;
                 }
                 return prev - 1;
             });
         }, 1000);
 
-        return () => {
-            clearInterval(timer);
-            clearInterval(pollInterval);
-        };
-    }, []);
+        return () => clearInterval(timer);
+    }, [isSyncing]);
 
     const formatTime = (seconds: number) => {
         if (seconds <= 0) return "00:00:00";
@@ -78,11 +116,19 @@ export function NumberGuessInterface({ onPlaceEntry, isProcessing, lastResult, c
         return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
     };
 
-    // Calculate progress (based on 1 hour = 3600 seconds)
+    // Calculate progress (based on actual startTime and endTime)
+    const getProgress = () => {
+        if (!currentRound || !currentRound.startTime || !currentRound.endTime) return 0;
+        const start = new Date(currentRound.startTime).getTime();
+        const end = new Date(currentRound.endTime).getTime();
+        const total = end - start;
+        const now = Date.now();
+        const elapsed = now - start;
+        return Math.max(0, Math.min(100, (1 - elapsed / total) * 100));
+    };
+
     const radius = 60;
-    const circumference = 2 * Math.PI * radius;
-    const progress = Math.max(0, Math.min(100, (timeLeft / 3600) * 100));
-    const dashOffset = circumference - (progress / 100) * circumference;
+    const progress = getProgress();
 
     const [roundsHistory, setRoundsHistory] = useState<any[]>([]);
 
@@ -101,7 +147,7 @@ export function NumberGuessInterface({ onPlaceEntry, isProcessing, lastResult, c
         fetchRoundsHistory();
         const interval = setInterval(fetchRoundsHistory, 30000); // Update history every 30s
         return () => clearInterval(interval);
-    }, []);
+    }, [currentRound]);
 
     return (
         <div className="max-w-3xl mx-auto space-y-10">
@@ -117,7 +163,7 @@ export function NumberGuessInterface({ onPlaceEntry, isProcessing, lastResult, c
                         <div className="h-2 w-2 rounded-full bg-emerald-500 relative" />
                     </div>
                     <span className="text-[11px] font-black uppercase tracking-[0.3em] text-white/80">
-                        Protocol Round #{currentRound?.roundNumber || '...'} <span className="text-emerald-500/80 ml-1">Live</span>
+                        Protocol Round #{currentRound?.roundNumber || '...'} {isSyncing ? <span className="text-yellow-500/80 ml-1 animate-pulse">Syncing...</span> : <span className="text-emerald-500/80 ml-1">Live</span>}
                     </span>
                 </motion.div>
 

@@ -28,6 +28,16 @@ const logAdminAction = async (actorId, eventType, action, targetId = null, detai
 
         const hash = crypto.createHash('sha256').update(logDataString).digest('hex');
 
+        // Auto-extract request context if req is provided
+        let ip = details.ip || '0.0.0.0';
+        let ua = details.ua || 'unknown';
+        
+        if (details.req) {
+            ip = details.req.ip || details.req.connection?.remoteAddress || ip;
+            ua = details.req.headers?.['user-agent'] || ua;
+            delete details.req; // Prevent circular JSON issues in DB
+        }
+
         const log = await AuditLog.create({
             userId: actorId,
             eventType,
@@ -36,8 +46,8 @@ const logAdminAction = async (actorId, eventType, action, targetId = null, detai
             details,
             severity: details.severity || 'info',
             walletAddress: details.walletAddress || '',
-            ipAddress: details.ip || '0.0.0.0',
-            userAgent: details.ua || 'unknown'
+            ipAddress: ip,
+            userAgent: ua
         });
 
         // Broadcast to admin dashboard if routes are initialized

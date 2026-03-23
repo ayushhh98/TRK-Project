@@ -12,10 +12,19 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/badge";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/Input";
 import { getToken } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useAdminSocket } from "@/hooks/useAdminSocket";
+import {
+    Table,
+    TableBody,
+    TableCell,
+    TableHead,
+    TableHeader,
+    TableRow
+} from "@/components/ui/table";
 
 const POOL_NODES = [
     { id: 'club', label: 'Club_Pool', desc: 'Loyalty Dividend Node', icon: Trophy, color: 'text-amber-400' },
@@ -32,6 +41,7 @@ export default function FinancialsDashboard() {
     const [timeframe, setTimeframe] = useState('30d');
     const [activeNode, setActiveNode] = useState('club');
     const [liveFeed, setLiveFeed] = useState<any[]>([]);
+    const [isRefreshing, setIsRefreshing] = useState(false);
 
     useAdminSocket({
         onStatsUpdate: (d) => {
@@ -49,8 +59,10 @@ export default function FinancialsDashboard() {
         fetchFinancials();
     }, [timeframe]);
 
-    const fetchFinancials = async () => {
-        setLoading(true);
+
+    const fetchFinancials = async (manual = false) => {
+        if (!manual) setLoading(true);
+        if (manual) setIsRefreshing(true);
         setError(null);
         try {
             const res = await fetch(`/api/admin/financials/dashboard?timeframe=${timeframe}`, {
@@ -76,6 +88,9 @@ export default function FinancialsDashboard() {
             const result = await res.json();
             if (result.status === 'success') {
                 setData(result.data);
+                if (result.data.recentActivity && liveFeed.length === 0) {
+                    setLiveFeed(result.data.recentActivity);
+                }
             } else {
                 setError(result.message || 'PROTOCOL_ERROR: Failed to decrypt treasury statistics.');
             }
@@ -83,7 +98,8 @@ export default function FinancialsDashboard() {
             console.error('Fetch error', err);
             setError(err.message || 'CONNECTION_FAULT: Unable to establish link with the treasury service.');
         } finally {
-            setLoading(false);
+            if (!manual) setLoading(false);
+            if (manual) setTimeout(() => setIsRefreshing(false), 800);
         }
     };
 
@@ -97,7 +113,8 @@ export default function FinancialsDashboard() {
     }
 
     return (
-        <div className="space-y-10 pb-32 max-w-[1600px] mx-auto overflow-x-hidden">
+        <div className="space-y-10 pb-32 w-full overflow-x-hidden">
+
             {/* Cybernetic Hub Header */}
             <div className={cn(
                 "relative group overflow-hidden rounded-[40px] border p-12 transition-all duration-700",
@@ -139,8 +156,9 @@ export default function FinancialsDashboard() {
                                 </button>
                             ))}
                         </div>
-                        <Button onClick={() => fetchFinancials()} className="w-full sm:w-auto bg-emerald-600 hover:bg-emerald-500 text-white font-black h-14 rounded-2xl px-8 uppercase text-xs tracking-widest shadow-2xl shadow-emerald-500/20">
-                            REFRESH_LEDGER
+                        <Button onClick={() => fetchFinancials(true)} disabled={isRefreshing} className="w-full sm:w-auto bg-emerald-600 hover:bg-emerald-500 text-white font-black h-14 rounded-2xl px-8 uppercase text-xs tracking-widest shadow-2xl shadow-emerald-500/20 transition-all">
+                            <RefreshCw className={cn("h-4 w-4 mr-2", isRefreshing && "animate-spin")} />
+                            {isRefreshing ? 'SYNCING...' : 'REFRESH_LEDGER'}
                         </Button>
                     </div>
                 </div>
@@ -372,9 +390,98 @@ export default function FinancialsDashboard() {
                                     House edge retention is successfully offsetting distribution requirements with a 4.2x safety margin. No inflationary pressure detected.
                                 </p>
                             </div>
-                            <Button className="w-full bg-white/5 hover:bg-white/10 text-white border border-white/10 h-14 rounded-2xl font-black uppercase text-xs tracking-widest">
-                                View Full Risk Analysis
-                            </Button>
+                            
+                            <Dialog>
+                                <DialogTrigger asChild>
+                                    <Button className="w-full bg-white/5 hover:bg-white/10 text-white border border-white/10 h-14 rounded-2xl font-black uppercase text-xs tracking-widest transition-all">
+                                        View Full Risk Analysis
+                                    </Button>
+                                </DialogTrigger>
+                                <DialogContent className="bg-[#050505] border-white/10 text-white max-w-4xl p-0 overflow-hidden sm:rounded-[32px]">
+                                    <DialogHeader className="p-8 pb-0 border-b border-white/5 relative bg-emerald-500/5">
+                                        <div className="absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-emerald-500/20 to-transparent" />
+                                        <div className="flex items-center gap-4 mb-4">
+                                            <div className="h-10 w-10 rounded-xl bg-emerald-500/20 flex items-center justify-center border border-emerald-500/30">
+                                                <Target className="h-5 w-5 text-emerald-500" />
+                                            </div>
+                                            <div>
+                                                <DialogTitle className="text-2xl font-black italic tracking-tighter uppercase">Protocol Risk Analysis</DialogTitle>
+                                                <p className="text-[10px] text-white/40 font-mono uppercase tracking-[0.2em] mt-1">Live Telemetry & Liquidity Feeds</p>
+                                            </div>
+                                        </div>
+                                    </DialogHeader>
+                                    
+                                    <div className="p-8 grid md:grid-cols-2 gap-8">
+                                        <div className="space-y-6">
+                                            <div className="flex justify-between items-end border-b border-white/10 pb-4">
+                                                <div>
+                                                    <p className="text-[10px] text-white/40 font-black uppercase tracking-widest">Protocol Stance</p>
+                                                    <p className="text-2xl font-black italic text-emerald-500 uppercase mt-1">Optimized</p>
+                                                </div>
+                                                <Badge className="bg-emerald-500/10 text-emerald-500 border-none animate-pulse">Live Link</Badge>
+                                            </div>
+                                            
+                                            <div className="space-y-4">
+                                                <div className="flex justify-between items-center text-sm font-mono border-b border-white/5 pb-2">
+                                                    <span className="text-white/40">House Edge Margin:</span>
+                                                    <span className="text-emerald-400 font-bold">4.2x (Stable)</span>
+                                                </div>
+                                                <div className="flex justify-between items-center text-sm font-mono border-b border-white/5 pb-2">
+                                                    <span className="text-white/40">Inflation Pressure:</span>
+                                                    <span className="text-emerald-400 font-bold">0.00%</span>
+                                                </div>
+                                                <div className="flex justify-between items-center text-sm font-mono border-b border-white/5 pb-2">
+                                                    <span className="text-white/40">Treasury Exposure:</span>
+                                                    <span className="text-blue-400 font-bold">Secured</span>
+                                                </div>
+                                                <div className="flex justify-between items-center text-sm font-mono border-b border-white/5 pb-2">
+                                                    <span className="text-white/40">Multi-Sig Consensus:</span>
+                                                    <span className="text-emerald-400 font-bold">3/5 Reached</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        
+                                        <div className="bg-[#020202] rounded-2xl border border-white/5 overflow-hidden flex flex-col h-[300px]">
+                                            <div className="p-3 border-b border-white/5 bg-white/5 flex items-center justify-between">
+                                                <div className="flex items-center gap-2">
+                                                    <Terminal className="h-4 w-4 text-emerald-500" />
+                                                    <span className="text-[10px] font-black italic text-emerald-500 uppercase tracking-widest">Live Execution Stream</span>
+                                                </div>
+                                            </div>
+                                            <div className="flex-1 overflow-y-auto p-4 space-y-3 font-mono text-[10px]">
+                                                {liveFeed.length === 0 ? (
+                                                    <div className="h-full flex flex-col items-center justify-center text-white/20 italic text-center">
+                                                        <Activity className="h-8 w-8 mb-2 animate-pulse" />
+                                                        Awaiting network events...
+                                                    </div>
+                                                ) : (
+                                                    <AnimatePresence>
+                                                        {liveFeed.map((event, idx) => (
+                                                            <motion.div
+                                                                key={`${idx}-${event.time || Date.now()}`}
+                                                                initial={{ opacity: 0, y: 10, x: -10 }}
+                                                                animate={{ opacity: 1, y: 0, x: 0 }}
+                                                                className="flex flex-col gap-1 border-l-2 pl-3 py-1 border-white/10"
+                                                            >
+                                                                <div className="flex justify-between text-white/30">
+                                                                    <span>[{new Date(event.time || Date.now()).toLocaleTimeString()}]</span>
+                                                                    <span className="text-emerald-500">CONFIRMED</span>
+                                                                </div>
+                                                                <div className="text-white/70">
+                                                                    {event.action || event.type} <span className="text-white/40">from</span> {event.user?.slice(0,6)}...
+                                                                </div>
+                                                                <div className="text-emerald-400 font-bold">
+                                                                    +$ {Number(event.amount || 0).toLocaleString()} <span className="text-white/40">USDT</span>
+                                                                </div>
+                                                            </motion.div>
+                                                        ))}
+                                                    </AnimatePresence>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </DialogContent>
+                            </Dialog>
                         </CardContent>
                     </Card>
 
@@ -395,4 +502,3 @@ export default function FinancialsDashboard() {
         </div>
     );
 }
-

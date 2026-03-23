@@ -15,6 +15,7 @@ import { cn } from "@/lib/utils";
 import { apiRequest } from "@/lib/api";
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useSocket } from "@/components/providers/Web3Provider";
+import { toast } from "sonner";
 
 
 // Cashback Phase Configuration
@@ -437,7 +438,12 @@ export default function CashbackPage() {
                                             if (!address) return;
                                             // Ideally open DepositModal with forced 100 USDT, or Call redeposit API directly if balance exists
                                             // For now, simpler alert to use main deposit
-                                            alert("Please deposit 100 USDT to reset your Sustainability Cycle.");
+                                            toast.error("Sustainability Cycle Cap Reached", {
+                                                description: "Please deposit 100 USDT to reset your cycle and continue earning recovery rewards.",
+                                                duration: 6000,
+                                                icon: <AlertCircle className="h-5 w-5 text-red-500" />,
+                                                className: "bg-black border-red-500/50 text-white rounded-2xl",
+                                            });
                                             // In full implementation: Trigger Deposit Contract -> Wait for Tx -> Call /api/cashback/redeposit
                                         } catch (e) {
                                             console.error(e);

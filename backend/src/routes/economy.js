@@ -75,7 +75,7 @@ router.post('/pause', auth, requireAdmin, async (req, res) => {
                     protocol.lastChangedAt = new Date();
                     protocol.pendingAction = null;
 
-                    await EconomyLog.create({
+                    const log = await EconomyLog.create({
                         adminId,
                         role: req.user.role,
                         action: 'PAUSE_ACTIVATED',
@@ -83,6 +83,7 @@ router.post('/pause', auth, requireAdmin, async (req, res) => {
                         reason,
                         ipAddress: req.ip
                     });
+                    req.app.get('io')?.emit('admin:economy_log', log);
                 }
             } else {
                 protocol.pendingAction = {
@@ -94,7 +95,7 @@ router.post('/pause', auth, requireAdmin, async (req, res) => {
                     reason
                 };
 
-                await EconomyLog.create({
+                const log = await EconomyLog.create({
                     adminId,
                     role: req.user.role,
                     action: 'PAUSE_REQUESTED',
@@ -102,6 +103,7 @@ router.post('/pause', auth, requireAdmin, async (req, res) => {
                     reason,
                     ipAddress: req.ip
                 });
+                req.app.get('io')?.emit('admin:economy_log', log);
             }
             await protocol.save();
         }
@@ -142,7 +144,7 @@ router.post('/resume', auth, requireAdmin, async (req, res) => {
                     protocol.lastChangedAt = new Date();
                     protocol.pendingAction = null;
 
-                    await EconomyLog.create({
+                    const log = await EconomyLog.create({
                         adminId,
                         role: req.user.role,
                         action: 'RESUME_ACTIVATED',
@@ -150,6 +152,7 @@ router.post('/resume', auth, requireAdmin, async (req, res) => {
                         reason,
                         ipAddress: req.ip
                     });
+                    req.app.get('io')?.emit('admin:economy_log', log);
                 }
             } else {
                 protocol.pendingAction = {
@@ -161,7 +164,7 @@ router.post('/resume', auth, requireAdmin, async (req, res) => {
                     reason
                 };
 
-                await EconomyLog.create({
+                const log = await EconomyLog.create({
                     adminId,
                     role: req.user.role,
                     action: 'RESUME_REQUESTED',
@@ -169,6 +172,7 @@ router.post('/resume', auth, requireAdmin, async (req, res) => {
                     reason,
                     ipAddress: req.ip
                 });
+                req.app.get('io')?.emit('admin:economy_log', log);
             }
             await protocol.save();
         }

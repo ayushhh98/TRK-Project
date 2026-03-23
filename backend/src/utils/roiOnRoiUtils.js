@@ -27,6 +27,27 @@ const LUCKY_DRAW_AUTO_PERCENT = 0.20; // 20% of commissions go to Lucky Draw Wal
 const processDailyRoi = async (io) => {
     console.log("📈 Starting Daily ROI on ROI Processing...");
     try {
+        const RoiConfig = require('../models/RoiConfig');
+        const config = await RoiConfig.getConfig();
+        
+        const DYNAMIC_COMMISSION_RATES = {
+            1: (config.roiOnRoi.level1 / 100) || 0.20,
+            2: (config.roiOnRoi.level2to5 / 100) || 0.10,
+            3: (config.roiOnRoi.level2to5 / 100) || 0.10,
+            4: (config.roiOnRoi.level2to5 / 100) || 0.10,
+            5: (config.roiOnRoi.level2to5 / 100) || 0.10,
+            6: (config.roiOnRoi.level6to10 / 100) || 0.05,
+            7: (config.roiOnRoi.level6to10 / 100) || 0.05,
+            8: (config.roiOnRoi.level6to10 / 100) || 0.05,
+            9: (config.roiOnRoi.level6to10 / 100) || 0.05,
+            10: (config.roiOnRoi.level6to10 / 100) || 0.05,
+            11: (config.roiOnRoi.level11to15 / 100) || 0.03,
+            12: (config.roiOnRoi.level11to15 / 100) || 0.03,
+            13: (config.roiOnRoi.level11to15 / 100) || 0.03,
+            14: (config.roiOnRoi.level11to15 / 100) || 0.03,
+            15: (config.roiOnRoi.level11to15 / 100) || 0.03,
+        };
+
         const usersWithCashback = await User.find({ 'cashbackStats.todayCashback': { $gt: 0 } });
         let totalDistributed = 0;
 
@@ -48,7 +69,7 @@ const processDailyRoi = async (io) => {
                     const unlockedLevels = referralCount >= 10 ? 15 : referralCount;
 
                     if (currentLevel <= unlockedLevels) {
-                        const totalCommission = poolAmount * ROI_COMMISSION_RATES[currentLevel];
+                        const totalCommission = poolAmount * DYNAMIC_COMMISSION_RATES[currentLevel];
                         const luckyCommission = totalCommission * LUCKY_DRAW_AUTO_PERCENT;
                         const mainCommission = totalCommission - luckyCommission;
 

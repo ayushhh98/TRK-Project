@@ -27,7 +27,9 @@ import {
     TrendingUp,
     Clock,
     Terminal,
-    Globe
+    Globe,
+    RefreshCcw,
+    DollarSign
 } from "lucide-react";
 import { format } from "date-fns";
 import { motion, AnimatePresence } from "framer-motion";
@@ -52,7 +54,9 @@ import {
     DropdownMenuTrigger
 } from "@/components/ui/dropdown-menu";
 import { useAdminSocket } from "@/hooks/useAdminSocket";
+import { useWallet } from "@/components/providers/WalletProvider";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 
 const IDENTITY_NODES = [
     { id: 'identity', label: 'Identity_Core', desc: 'Core User Credentials', icon: Users, color: 'text-purple-400' },
@@ -76,6 +80,8 @@ export default function UserManagement() {
     const [systemStats, setSystemStats] = useState<any>(null);
     const [activeNode, setActiveNode] = useState('identity');
     const router = useRouter();
+    const { user: currentUser } = useWallet();
+    const isSuperAdmin = currentUser?.role === 'superadmin';
 
     // Real-time updates
     const { connectionStatus } = useAdminSocket({
@@ -84,7 +90,15 @@ export default function UserManagement() {
         },
         onUserUpdate: (updatedUser) => {
             console.log("Real-time user update:", updatedUser);
-            setUsers(prev => prev.map(u => u._id === updatedUser._id ? { ...u, ...updatedUser } : u));
+            setUsers(prev => {
+                const exists = prev.some(u => u._id === updatedUser._id);
+                if (exists) {
+                    return prev.map(u => u._id === updatedUser._id ? { ...u, ...updatedUser } : u);
+                } else {
+                    setTotal(t => t + 1);
+                    return page === 1 ? [updatedUser, ...prev].slice(0, 50) : prev;
+                }
+            });
         },
         onUserActivity: (data) => {
             setActivityLog(prev => [data, ...prev].slice(0, 30));
@@ -154,14 +168,93 @@ export default function UserManagement() {
         }
     };
 
-    const viewProfile = (user: any) => {
+    const [profileLoading, setProfileLoading] = useState(false);
+    const [fullProfile, setFullProfile] = useState<any>(null);
+
+    const viewProfile = async (user: any) => {
         setSelectedUser(user);
         setShowProfile(true);
+        setProfileLoading(true);
+        try {
+            const res = await fetch(`/api/admin/users/${user._id}/profile`, {
+                headers: { 'Authorization': `Bearer ${getToken()}` }
+            });
+            const d = await res.json();
+            if (d.status === 'success') {
+                setFullProfile(d.data);
+            }
+        } catch (e) {
+            console.error('Profile fetch error', e);
+        } finally {
+            setProfileLoading(false);
+        }
+    };
+
+    const handleFlag = async (userId: string, isFlagged: boolean) => {
+        try {
+            const endpoint = isFlagged ? `/api/admin/users/${userId}/unflag` : `/api/admin/users/${userId}/flag`;
+            const res = await fetch(endpoint, {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${getToken()}`
+                },
+                body: isFlagged ? null : JSON.stringify({ reason: 'Suspicious activity flagged by admin' })
+            });
+            const data = await res.json();
+            if (data.status === 'success') {
+                if (fullProfile && fullProfile.user._id === userId) {
+                    setFullProfile({
+                        ...fullProfile,
+                        user: { ...fullProfile.user, isFlagged: !isFlagged }
+                    });
+                }
+                fetchUsers();
+                toast.success(isFlagged ? "Flag removed" : "User flagged successfully");
+            } else {
+                toast.error(data.message || "Action failed");
+            }
+        } catch (err) {
+            console.error('Flag error', err);
+            toast.error("Network error");
+        }
+    };
+
+    const handleBan = async (userId: string, isBanned: boolean) => {
+        try {
+            const endpoint = isBanned ? `/api/admin/users/${userId}/unban` : `/api/admin/users/${userId}/ban`;
+            const res = await fetch(endpoint, {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${getToken()}`
+                },
+                body: isBanned ? null : JSON.stringify({ reason: 'Super Admin manual ban' })
+            });
+            const data = await res.json();
+            if (data.status === 'success') {
+                if (fullProfile && fullProfile.user._id === userId) {
+                    setFullProfile({
+                        ...fullProfile,
+                        user: { ...fullProfile.user, isBanned: !isBanned }
+                    });
+                }
+                fetchUsers();
+                toast.success(isBanned ? "Ban lifted successfully" : "Target identity terminated");
+            } else {
+                toast.error(data.message || "Action failed");
+            }
+        } catch (err) {
+            console.error('Ban error', err);
+            toast.error("Network error");
+        }
     };
 
     const viewNetwork = (userId: string) => {
         router.push(`/admin/network?root=${userId}`);
     };
+
+    const fmt = (n: number) => n?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00';
 
     return (
         <div className="min-h-screen bg-black text-white/90 p-8 space-y-10 pb-32">
@@ -253,8 +346,7 @@ export default function UserManagement() {
                 ))}
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
-                <div className="lg:col-span-3 space-y-8">
+            <div className="space-y-8">
                     {/* Error handling remains */}
                     {error && (
                         <div className="bg-rose-500/10 border border-rose-500/20 text-rose-500 rounded-2xl p-6 mb-8 flex gap-4 backdrop-blur-xl relative overflow-hidden group">
@@ -295,17 +387,17 @@ export default function UserManagement() {
                             { label: 'Login_Success', value: '100%', sub: 'Last 24h', icon: Lock, color: 'text-blue-400', bar: 'bg-blue-500' },
                             { label: 'MFA_Coverage', value: '100%', sub: 'Admin Nodes', icon: Shield, color: 'text-purple-400', bar: 'bg-purple-500' },
                             { label: 'Token_Refresh', value: '0.1s', sub: 'Latency', icon: Zap, color: 'text-amber-400', bar: 'bg-amber-500' },
-                            { label: 'Auth_Events', value: (activityLog.length > 0 ? activityLog.length : 12).toLocaleString(), sub: 'Matrix Load', icon: Cpu, color: 'text-blue-400', bar: 'bg-blue-500' }
+                            { label: 'Liquidity_Ratio', value: `${systemStats?.liquidityRatio || 0}%`, sub: 'System Health', icon: CardHeader === null ? Shield : Cpu, color: 'text-blue-400', bar: 'bg-blue-500' }
                         ] : activeNode === 'kyc' ? [
                             { label: 'Pending_KYC', value: users.filter(u => u.activation?.tier === 'tier0').length, sub: 'Queue Depth', icon: Clock, color: 'text-amber-400', bar: 'bg-amber-500' },
-                            { label: 'Verification_Rate', value: '100%', sub: 'Success Flow', icon: ShieldCheck, color: 'text-emerald-400', bar: 'bg-emerald-500' },
+                            { label: 'Verified_Nodes', value: users.filter(u => u.activation?.tier !== 'tier0').length, sub: 'Success Flow', icon: ShieldCheck, color: 'text-emerald-400', bar: 'bg-emerald-500' },
                             { label: 'Identity_Link', value: 'Active', sub: 'On-Chain Sync', icon: Globe, color: 'text-blue-400', bar: 'bg-blue-500' },
-                            { label: 'AML_Alerts', value: '0', sub: 'System Clean', icon: ShieldAlert, color: 'text-emerald-400', bar: 'bg-emerald-500' }
+                            { label: 'System_Nodes', value: total.toLocaleString(), sub: 'Node Capacity', icon: ShieldAlert, color: 'text-emerald-400', bar: 'bg-emerald-500' }
                         ] : activeNode === 'social' ? [
-                            { label: 'Direct_Uplink', value: (total * 0.4).toFixed(0), sub: 'Primary Mesh', icon: Network, color: 'text-purple-400', bar: 'bg-purple-500' },
-                            { label: 'Viral_Coefficient', value: '1.24', sub: 'Expansion', icon: TrendingUp, color: 'text-blue-400', bar: 'bg-blue-500' },
+                            { label: 'Direct_Uplink', value: (systemStats?.users || total || 0), sub: 'Primary Mesh', icon: Network, color: 'text-purple-400', bar: 'bg-purple-500' },
+                            { label: 'Viral_Coefficient', value: (total > 0 ? (total / (total * 0.8)).toFixed(2) : '1.00'), sub: 'Calculated', icon: TrendingUp, color: 'text-blue-400', bar: 'bg-blue-500' },
                             { label: 'Mesh_Density', value: total > 100 ? 'High' : 'Optimal', sub: 'Saturation', icon: Globe, color: 'text-purple-500', bar: 'bg-purple-500' },
-                            { label: 'Social_Yield', value: `$ ${((systemStats?.club?.totalDistributed || 0) / 1000).toFixed(1)}k`, sub: 'Network Revenue', icon: Trophy, color: 'text-amber-400', bar: 'bg-amber-500' }
+                            { label: 'Social_Yield', value: `$ ${((systemStats?.club?.totalDistributed || 0) / 1000).toFixed(2)}k`, sub: 'Network Revenue', icon: Trophy, color: 'text-amber-400', bar: 'bg-amber-500' }
                         ] : activeNode === 'admin-core' ? [
                             { label: 'Privileged_Ops', value: systemStats?.team?.totalOperationsToday || 0, sub: 'Last Ref', icon: ShieldAlert, color: 'text-amber-400', bar: 'bg-amber-500' },
                             { label: 'RBAC_Sync', value: 'Locked', sub: 'Policy Enforced', icon: Lock, color: 'text-purple-400', bar: 'bg-purple-500' },
@@ -327,7 +419,7 @@ export default function UserManagement() {
                                         <span className="text-[10px] font-black text-white/30 uppercase tracking-[0.2em]">{stat.label}</span>
                                     </div>
                                     <div className="flex items-baseline gap-2">
-                                        <span className="text-3xl font-display font-black text-white italic">{stat.value}</span>
+                                        <span className="text-3xl font-display font-black text-white italic">{stat.value || 0}</span>
                                         <span className="text-[9px] font-bold text-white/20 uppercase tracking-widest">{stat.sub}</span>
                                     </div>
                                     <div className="pt-2">
@@ -371,7 +463,9 @@ export default function UserManagement() {
                                     </div>
                                     <div className="space-y-2 border-l border-white/5 pl-12">
                                         <div className="text-[9px] font-black text-white/20 uppercase tracking-widest leading-none">Node Density</div>
-                                        <div className="text-purple-400 font-black italic tracking-[0.2em] text-2xl uppercase">82.4%</div>
+                                        <div className="text-purple-400 font-black italic tracking-[0.2em] text-2xl uppercase">
+                                            {systemStats?.users ? ((systemStats.users / (systemStats.users + 100)) * 100).toFixed(1) : '0.0'}%
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -383,18 +477,20 @@ export default function UserManagement() {
                                             cx="112" cy="112" r="100" stroke="currentColor" strokeWidth="16" fill="transparent"
                                             strokeDasharray={2 * Math.PI * 100}
                                             initial={{ strokeDashoffset: 2 * Math.PI * 100 }}
-                                            animate={{ strokeDashoffset: 2 * Math.PI * 100 * (1 - 0.82) }}
+                                            animate={{ strokeDashoffset: 2 * Math.PI * 100 * (1 - (systemStats?.users ? Math.min(0.99, systemStats.users / (systemStats.users + 100)) : 0)) }}
                                             transition={{ duration: 2, ease: "easeOut" }}
                                             className="text-purple-500"
                                             strokeLinecap="round"
                                         />
                                     </svg>
                                     <div className="absolute inset-0 flex flex-col items-center justify-center">
-                                        <span className="text-5xl font-display font-black text-white italic">82</span>
+                                        <span className="text-5xl font-display font-black text-white italic">
+                                            {systemStats?.onlineUsers || 0}
+                                        </span>
                                         <span className="text-[10px] font-black text-purple-500 uppercase tracking-widest mt-1">VELOCITY</span>
                                     </div>
                                     <div className="absolute -bottom-4 px-6 py-2 rounded-xl bg-purple-500 text-black text-[10px] font-black uppercase tracking-widest italic animate-bounce shadow-2xl shadow-purple-500/40">
-                                        Hyperdrive_Active
+                                        {systemStats?.onlineUsers > 0 ? 'Hyperdrive_Active' : 'Standby_Mode'}
                                     </div>
                                 </div>
                             </div>
@@ -435,10 +531,10 @@ export default function UserManagement() {
                                                 <div className="space-y-1">
                                                     <div className="flex items-center gap-2">
                                                         <Badge className="bg-emerald-500/10 text-emerald-500 border-none text-[9px] px-1.5 h-4 font-black">
-                                                            RT: ${user.realBalances?.directLevel?.toFixed(2)}
+                                                            RT: ${(user.realBalances?.grandTotal || 0).toFixed(2)}
                                                         </Badge>
                                                         <Badge className="bg-blue-500/10 text-blue-400 border-none text-[9px] px-1.5 h-4 font-black">
-                                                            PB: ${user.realBalances?.practice?.toFixed(2)}
+                                                            PB: ${(user.practiceBalance || 0).toFixed(2)}
                                                         </Badge>
                                                     </div>
                                                     <div className="text-[9px] text-white/30 uppercase font-black tracking-widest italic">LVL_{user.clubRank || 0}_UPLINK</div>
@@ -529,59 +625,6 @@ export default function UserManagement() {
                     </Card>
                 </div>
 
-                {/* Live Activity Terminal */}
-                <Card className="bg-[#0a0a0a] border-white/10 overflow-hidden lg:row-span-1 shadow-2xl rounded-[32px]">
-                    <CardHeader className="p-8 border-b border-white/5 bg-white/[0.02]">
-                        <div className="flex items-center justify-between">
-                            <CardTitle className="text-[10px] font-black uppercase tracking-[0.3em] text-purple-400 flex items-center gap-2">
-                                <Radio className="h-3 w-3 animate-pulse" /> Access Protocol
-                            </CardTitle>
-                            <Badge className="bg-purple-500/10 text-purple-400 border-none text-[9px] font-black px-3">
-                                {activityLog.length} ACTIVE
-                            </Badge>
-                        </div>
-                    </CardHeader>
-                    <CardContent className="p-0 overflow-y-auto max-h-[800px] font-mono scrollbar-none">
-                        <div className="divide-y divide-white/[0.03]">
-                            {activityLog.length === 0 ? (
-                                <div className="p-12 text-center space-y-4">
-                                    <Activity className="h-6 w-6 text-white/5 mx-auto" />
-                                    <p className="text-[9px] text-white/20 uppercase font-black tracking-[0.3em] font-mono">Awaiting_Uplink...</p>
-                                </div>
-                            ) : (
-                                <AnimatePresence initial={false}>
-                                    {activityLog.map((event, i) => (
-                                        <motion.div
-                                            key={i}
-                                            initial={{ opacity: 0, x: -10 }}
-                                            animate={{ opacity: 1, x: 0 }}
-                                            className="p-5 hover:bg-white/[0.02] transition-colors border-l-2 border-transparent hover:border-purple-500/50"
-                                        >
-                                            <div className="flex justify-between items-start mb-2">
-                                                <span className="text-[9px] font-black px-2 py-1 rounded italic bg-purple-500/10 text-purple-400 uppercase tracking-widest">
-                                                    LOGIN_OK
-                                                </span>
-                                                <span className="text-[8px] text-white/20 font-bold tracking-widest">{format(new Date(event.timestamp), "HH:mm:ss")}</span>
-                                            </div>
-                                            <div className="text-[10px] text-white/60 truncate font-black uppercase tracking-tighter">
-                                                {event.walletAddress?.slice(0, 14)}...
-                                            </div>
-                                            <div className="flex items-center justify-between mt-2">
-                                                <span className="text-[9px] text-white/20 uppercase font-black tracking-widest font-mono">{event.ipAddress || '0.0.0.0'}</span>
-                                                <div className="flex items-center gap-1.5">
-                                                    <div className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                                                    <span className="text-[8px] font-black text-emerald-500/50 uppercase italic tracking-widest">SECURE</span>
-                                                </div>
-                                            </div>
-                                        </motion.div>
-                                    ))}
-                                </AnimatePresence>
-                            )}
-                        </div>
-                    </CardContent>
-                </Card>
-            </div>
-
             <AnimatePresence>
                 {showProfile && selectedUser && (
                     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -589,111 +632,240 @@ export default function UserManagement() {
                             initial={{ opacity: 0 }}
                             animate={{ opacity: 1 }}
                             exit={{ opacity: 0 }}
-                            onClick={() => setShowProfile(false)}
-                            className="absolute inset-0 bg-black/80 backdrop-blur-xl"
+                            onClick={() => { setShowProfile(false); setFullProfile(null); }}
+                            className="absolute inset-0 bg-black/80 backdrop-blur-2xl"
                         />
                         <motion.div
-                            initial={{ opacity: 0, scale: 0.95, y: 20 }}
+                            initial={{ opacity: 0, scale: 0.9, y: 40 }}
                             animate={{ opacity: 1, scale: 1, y: 0 }}
-                            exit={{ opacity: 0, scale: 0.95, y: 20 }}
-                            className="relative w-full max-w-4xl bg-[#0a0a0a] border border-white/10 rounded-[2.5rem] overflow-hidden shadow-2xl"
+                            exit={{ opacity: 0, scale: 0.9, y: 40 }}
+                            className="relative w-full max-w-6xl max-h-[90vh] bg-[#050505] border border-white/10 rounded-[3rem] overflow-hidden shadow-[0_0_100px_rgba(168,85,247,0.1)] flex flex-col"
                         >
-                            <div className="absolute top-0 right-0 p-8 z-10">
-                                <Button
-                                    variant="ghost"
-                                    onClick={() => setShowProfile(false)}
-                                    className="h-10 w-10 rounded-full bg-white/5 border border-white/10 hover:bg-white/10 text-white/40"
-                                >
-                                    <LogOut className="h-4 w-4 rotate-180" />
-                                </Button>
+                            {/* Header Section */}
+                            <div className="p-8 border-b border-white/5 bg-white/[0.02] flex items-center justify-between shrink-0">
+                                <div className="flex items-center gap-6">
+                                    <div className="h-16 w-16 rounded-2xl bg-gradient-to-br from-purple-500/20 to-transparent border border-purple-500/30 flex items-center justify-center text-2xl font-display font-black italic text-purple-400">
+                                        {selectedUser.walletAddress?.slice(2, 4).toUpperCase()}
+                                    </div>
+                                    <div>
+                                        <div className="flex items-center gap-3 mb-1">
+                                            <h2 className="text-3xl font-display font-black text-white italic tracking-tight">
+                                                {selectedUser.walletAddress?.slice(0, 16)}...
+                                            </h2>
+                                            {fullProfile?.user?.isFlagged && (
+                                                <Badge className="bg-amber-500/20 text-amber-500 border-amber-500/30 animate-pulse uppercase font-black text-[9px] px-3">SUSPICIOUS_FLAG</Badge>
+                                            )}
+                                        </div>
+                                        <p className="text-[10px] font-mono text-white/30 uppercase tracking-[0.4em]">Protocol_ID: {selectedUser._id}</p>
+                                    </div>
+                                </div>
+                                <div className="flex items-center gap-4">
+                                    <Button
+                                        variant="ghost"
+                                        onClick={() => { setShowProfile(false); setFullProfile(null); }}
+                                        className="h-12 w-12 rounded-2xl border-white/10 bg-white/5 hover:bg-white/10 text-white/40"
+                                    >
+                                        <LogOut className="h-4 w-4 rotate-180" />
+                                    </Button>
+                                </div>
                             </div>
 
-                            <div className="grid md:grid-cols-3">
-                                {/* Left Side: User Summary */}
-                                <div className="p-10 bg-white/[0.02] border-r border-white/5 space-y-8">
-                                    <div className="space-y-4 text-center md:text-left">
-                                        <div className="h-24 w-24 rounded-3xl bg-purple-500/20 border-2 border-purple-500/40 mx-auto md:mx-0 flex items-center justify-center text-4xl font-display font-black italic text-purple-400">
-                                            {selectedUser.walletAddress?.slice(2, 4).toUpperCase()}
-                                        </div>
-                                        <div>
-                                            <h2 className="text-xl font-display font-black text-white italic truncate">
-                                                {selectedUser.walletAddress?.slice(0, 12)}...
-                                            </h2>
-                                            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-white/40">NODE ID: {selectedUser._id.slice(-8)}</p>
-                                        </div>
+                            {/* Main Content Area */}
+                            <div className="flex-1 overflow-y-auto p-10 custom-scrollbar">
+                                {profileLoading ? (
+                                    <div className="h-96 flex flex-col items-center justify-center space-y-4">
+                                        <RefreshCcw className="h-8 w-8 text-purple-500 animate-spin" />
+                                        <p className="text-[10px] font-black uppercase tracking-[0.3em] text-white/20">Syncing_Uplink...</p>
                                     </div>
-
-                                    <div className="space-y-4">
-                                        <div className="p-4 rounded-2xl bg-black border border-white/5 space-y-1">
-                                            <span className="text-[9px] font-black text-white/40 uppercase tracking-widest leading-none">Access Status</span>
-                                            <div className="flex items-center gap-2">
-                                                <div className={cn("h-2 w-2 rounded-full", selectedUser.isActive ? "bg-emerald-500 animate-pulse" : "bg-white/20")} />
-                                                <span className="text-xs font-black uppercase italic tracking-tight text-white">{selectedUser.isActive ? 'Protocol Active' : 'Suspended'}</span>
-                                            </div>
-                                        </div>
-                                        <div className="p-4 rounded-2xl bg-black border border-white/5 space-y-1">
-                                            <span className="text-[9px] font-black text-white/40 uppercase tracking-widest leading-none">Security Tier</span>
-                                            <div className="text-xs font-black uppercase text-purple-400 italic tracking-tight">{selectedUser.activation?.tier?.replace('tier', 'LEVEL_') || 'PRC_MODE'}</div>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                {/* Right Side: Detailed Matrix */}
-                                <div className="md:col-span-2 p-10 space-y-10 max-h-[80vh] overflow-y-auto custom-scrollbar">
-                                    <div>
-                                        <h3 className="text-[10px] font-black text-white/40 uppercase tracking-[0.3em] italic mb-6 flex items-center gap-2">
-                                            <BarChart3 className="h-4 w-4" /> Financial Intelligence Matrix
-                                        </h3>
-                                        <div className="grid grid-cols-2 gap-4">
-                                            <Card className="bg-black border-white/5 p-6 space-y-1">
-                                                <span className="text-[9px] font-black text-white/30 uppercase tracking-widest">Protocol Balance</span>
-                                                <div className="text-2xl font-display font-black text-emerald-400 italic font-mono">$ {selectedUser.realBalances?.directLevel?.toFixed(2) || '0.00'}</div>
+                                ) : (
+                                    <div className="space-y-12">
+                                        {/* Row 1: Basic & Financial */}
+                                        <div className="grid lg:grid-cols-3 gap-8">
+                                            {/* Basic Info */}
+                                            <Card className="bg-white/[0.02] border-white/5 p-8 space-y-6">
+                                                <h3 className="text-[10px] font-black text-white/30 uppercase tracking-[0.3em] flex items-center gap-2">
+                                                    <Users className="h-3 w-3" /> Basic_Protocol_Info
+                                                </h3>
+                                                <div className="space-y-4">
+                                                    <div className="flex justify-between items-center py-3 border-b border-white/5">
+                                                        <span className="text-[10px] text-white/40 uppercase font-black">Joined</span>
+                                                        <span className="text-xs font-bold text-white">{format(new Date(selectedUser.createdAt), 'MMM dd, yyyy')}</span>
+                                                    </div>
+                                                    <div className="flex justify-between items-center py-3 border-b border-white/5">
+                                                        <span className="text-[10px] text-white/40 uppercase font-black">Tier</span>
+                                                        <Badge className="bg-purple-500/10 text-purple-400 border-none uppercase font-black italic text-[10px]">
+                                                            {fullProfile?.user?.activation?.tier?.replace('tier', 'LEVEL_') || 'PENDING'}
+                                                        </Badge>
+                                                    </div>
+                                                    <div className="flex justify-between items-center py-3 border-b border-white/5">
+                                                        <span className="text-[10px] text-white/40 uppercase font-black">Referral Code</span>
+                                                        <span className="text-xs font-mono font-black text-purple-400 tracking-widest uppercase">{selectedUser.referralCode}</span>
+                                                    </div>
+                                                    <div className="flex justify-between items-center py-3">
+                                                        <span className="text-[10px] text-white/40 uppercase font-black">Status</span>
+                                                        <div className="flex items-center gap-2">
+                                                            <div className={cn("h-2 w-2 rounded-full", selectedUser.isActive ? "bg-emerald-500 animate-pulse" : "bg-red-500")} />
+                                                            <span className="text-xs font-black uppercase italic text-white">{selectedUser.isActive ? 'Active' : 'Suspended'}</span>
+                                                        </div>
+                                                    </div>
+                                                </div>
                                             </Card>
-                                            <Card className="bg-black border-white/5 p-6 space-y-1">
-                                                <span className="text-[9px] font-black text-white/30 uppercase tracking-widest">Practice Credit</span>
-                                                <div className="text-2xl font-display font-black text-blue-400 italic font-mono">$ {selectedUser.realBalances?.practice?.toFixed(2) || '0.00'}</div>
+
+                                            {/* Financial Matrix */}
+                                            <Card className="lg:col-span-2 bg-white/[0.02] border-white/5 p-8">
+                                                <h3 className="text-[10px] font-black text-white/30 uppercase tracking-[0.3em] flex items-center gap-2 mb-8">
+                                                    <DollarSign className="h-3 w-3" /> Financial_Intelligence_Matrix
+                                                </h3>
+                                                <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+                                                    {[
+                                                        { label: 'Total Deposits', value: `$${fmt(fullProfile?.financials?.totalDeposits || 0)}`, color: 'text-emerald-400' },
+                                                        { label: 'Total Withdrawals', value: `$${fmt(fullProfile?.financials?.totalWithdrawals || 0)}`, color: 'text-red-400' },
+                                                        { label: 'Net P/L', value: `$${fmt(fullProfile?.financials?.netProfit || 0)}`, color: (fullProfile?.financials?.netProfit || 0) >= 0 ? 'text-emerald-400' : 'text-red-400' },
+                                                        { label: 'ROI Cap Used', value: fullProfile?.financials?.roiCapUsed || '0%', color: 'text-purple-400' },
+                                                    ].map((stat, i) => (
+                                                        <div key={i} className="space-y-1">
+                                                            <div className="text-[9px] font-black text-white/20 uppercase tracking-widest">{stat.label}</div>
+                                                            <div className={cn("text-xl font-display font-black italic", stat.color)}>{stat.value}</div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                                <div className="mt-10 grid grid-cols-2 gap-4">
+                                                    <div className="p-4 rounded-2xl bg-black border border-white/5 space-y-1">
+                                                        <span className="text-[9px] font-black text-white/20 uppercase tracking-widest">Winners Wallet (Internal)</span>
+                                                        <div className="text-lg font-mono font-black text-emerald-400/80">${fmt(selectedUser.realBalances?.winners || 0)}</div>
+                                                    </div>
+                                                    <div className="p-4 rounded-2xl bg-black border border-white/5 space-y-1">
+                                                        <span className="text-[9px] font-black text-white/20 uppercase tracking-widest">ROI Wallet (Internal)</span>
+                                                        <div className="text-lg font-mono font-black text-purple-400/80">${fmt(selectedUser.realBalances?.cashbackROI || 0)}</div>
+                                                    </div>
+                                                </div>
                                             </Card>
                                         </div>
-                                    </div>
 
-                                    <div>
-                                        <h3 className="text-[10px] font-black text-white/40 uppercase tracking-[0.3em] italic mb-6 flex items-center gap-2">
-                                            <ShieldCheck className="h-4 w-4" /> Identity Records
-                                        </h3>
-                                        <div className="space-y-4">
-                                            <div className="flex items-center justify-between p-4 rounded-2xl bg-white/[0.02] border border-white/5">
-                                                <span className="text-[9px] font-black text-white/40 uppercase tracking-widest">Email Uplink</span>
-                                                <span className="text-xs font-bold text-white selection:bg-purple-500/30">{selectedUser.email || 'PROTOCOL_ANONYMOUS'}</span>
-                                            </div>
-                                            <div className="flex items-center justify-between p-4 rounded-2xl bg-white/[0.02] border border-white/5">
-                                                <span className="text-[9px] font-black text-white/40 uppercase tracking-widest">Genesis Timestamp</span>
-                                                <span className="text-xs font-bold text-white uppercase italic">{format(new Date(selectedUser.createdAt), "MMM dd, yyyy HH:mm:ss")}</span>
-                                            </div>
-                                            <div className="flex items-center justify-between p-4 rounded-2xl bg-white/[0.02] border border-white/5">
-                                                <span className="text-[9px] font-black text-white/40 uppercase tracking-widest">Referral Signature</span>
-                                                <span className="text-xs font-black text-purple-400 italic font-mono tracking-widest uppercase">{selectedUser.referralCode}</span>
-                                            </div>
+                                        {/* Row 2: Network & Game Data */}
+                                        <div className="grid lg:grid-cols-2 gap-8">
+                                            {/* Network Data */}
+                                            <Card className="bg-[#080808] border-purple-500/10 p-8 relative overflow-hidden">
+                                                <div className="absolute top-0 right-0 p-8 opacity-5">
+                                                    <Network className="h-32 w-32 text-purple-500" />
+                                                </div>
+                                                <h3 className="text-[10px] font-black text-white/30 uppercase tracking-[0.3em] flex items-center gap-2 mb-8 relative z-10">
+                                                    <Network className="h-3 w-3" /> Network_Propagation_Node
+                                                </h3>
+                                                <div className="grid grid-cols-2 gap-8 relative z-10">
+                                                    <div className="space-y-1">
+                                                        <div className="text-[9px] font-black text-white/20 uppercase tracking-widest">Direct Referrals</div>
+                                                        <div className="text-4xl font-display font-black text-white italic">{fullProfile?.network?.directReferrals}</div>
+                                                    </div>
+                                                    <div className="space-y-1">
+                                                        <div className="text-[9px] font-black text-white/20 uppercase tracking-widest">Total Team Size</div>
+                                                        <div className="text-4xl font-display font-black text-purple-400 italic">{fullProfile?.network?.totalTeamSize}</div>
+                                                    </div>
+                                                    <div className="space-y-1">
+                                                        <div className="text-[9px] font-black text-white/20 uppercase tracking-widest">Active vs Inactive</div>
+                                                        <div className="flex items-center gap-3 text-xl font-black italic">
+                                                            <span className="text-emerald-400">{fullProfile?.network?.activeUsers}</span>
+                                                            <span className="text-white/20">/</span>
+                                                            <span className="text-white/40">{fullProfile?.network?.totalTeamSize - fullProfile?.network?.activeUsers}</span>
+                                                        </div>
+                                                    </div>
+                                                    <div className="space-y-1">
+                                                        <div className="text-[9px] font-black text-white/20 uppercase tracking-widest">Current Rank</div>
+                                                        <Badge className="bg-purple-500/20 text-purple-400 border-none uppercase font-black italic text-xs px-4 py-1">
+                                                            {fullProfile?.network?.levelUnlock}
+                                                        </Badge>
+                                                    </div>
+                                                </div>
+                                            </Card>
+
+                                            {/* Game Data */}
+                                            <Card className="bg-[#080808] border-white/5 p-8 relative overflow-hidden">
+                                                <div className="absolute top-0 right-0 p-8 opacity-5">
+                                                    <Trophy className="h-32 w-32 text-amber-500" />
+                                                </div>
+                                                <h3 className="text-[10px] font-black text-white/30 uppercase tracking-[0.3em] flex items-center gap-2 mb-8 relative z-10">
+                                                    <Activity className="h-3 w-3" /> Gaming_Protocol_Metrics
+                                                </h3>
+                                                <div className="grid grid-cols-2 gap-8 relative z-10">
+                                                    <div className="space-y-1">
+                                                        <div className="text-[9px] font-black text-white/20 uppercase tracking-widest">Total Games Played</div>
+                                                        <div className="text-4xl font-display font-black text-white italic">{fullProfile?.games?.totalPlayed}</div>
+                                                    </div>
+                                                    <div className="space-y-1">
+                                                        <div className="text-[9px] font-black text-white/20 uppercase tracking-widest">Win / Loss Record</div>
+                                                        <div className="flex items-center gap-3 text-3xl font-black italic">
+                                                            <span className="text-emerald-400">{fullProfile?.games?.wins}W</span>
+                                                            <span className="text-white/20">-</span>
+                                                            <span className="text-red-400">{fullProfile?.games?.losses}L</span>
+                                                        </div>
+                                                    </div>
+                                                    <div className="space-y-1">
+                                                        <div className="text-[9px] font-black text-white/20 uppercase tracking-widest">8X Jackpot Wins</div>
+                                                        <div className="text-3xl font-display font-black text-amber-400 italic">{fullProfile?.games?.eightXWins} HIT</div>
+                                                    </div>
+                                                    <div className="space-y-1">
+                                                        <div className="text-[9px] font-black text-white/20 uppercase tracking-widest">Lucky Draw Payouts</div>
+                                                        <div className="text-3xl font-display font-black text-blue-400 italic">{fullProfile?.luckyDraw?.wins} WIN</div>
+                                                    </div>
+                                                </div>
+                                            </Card>
                                         </div>
-                                    </div>
 
-                                    <div className="pt-6 border-t border-white/5 flex gap-4">
-                                        <Button
-                                            onClick={() => viewNetwork(selectedUser._id)}
-                                            className="flex-1 bg-white/5 hover:bg-white/10 text-white font-black h-12 rounded-xl text-[10px] uppercase italic tracking-[0.2em] gap-2 border border-white/5"
-                                        >
-                                            <Network className="h-4 w-4" /> TRACE NETWORK
-                                        </Button>
-                                        <Button
-                                            onClick={() => handleFreeze(selectedUser._id, selectedUser.isFrozen)}
-                                            className={cn(
-                                                "flex-1 font-black h-12 rounded-xl text-[10px] uppercase italic tracking-[0.2em] gap-2 transition-all",
-                                                selectedUser.isFrozen ? "bg-emerald-500 text-black shadow-lg shadow-emerald-500/20" : "bg-red-500 text-white shadow-lg shadow-red-500/20 hover:bg-red-600"
-                                            )}
-                                        >
-                                            {selectedUser.isFrozen ? <><Shield className="h-4 w-4" /> RE-ACTIVATE</> : <><ShieldOff className="h-4 w-4" /> SUSPEND NODE</>}
-                                        </Button>
+                                        {/* Row 3: Admin Command Suite */}
+                                        <Card className="bg-white/[0.03] border-white/10 p-8">
+                                            <h3 className="text-[10px] font-black text-white/30 uppercase tracking-[0.3em] flex items-center gap-2 mb-8">
+                                                <ShieldAlert className="h-3 w-3" /> Admin_Command_Protocol
+                                            </h3>
+                                            <div className="flex flex-wrap gap-4">
+                                                <Button
+                                                    onClick={() => handleFreeze(selectedUser._id, selectedUser.isFrozen)}
+                                                    className={cn(
+                                                        "h-14 flex-1 min-w-[200px] rounded-2xl font-black uppercase italic tracking-widest text-[11px] gap-3 transition-all",
+                                                        selectedUser.isFrozen ? "bg-emerald-500 text-black shadow-lg shadow-emerald-500/20" : "bg-red-500/20 text-red-500 border border-red-500/30 hover:bg-red-500 hover:text-white"
+                                                    )}
+                                                >
+                                                    {selectedUser.isFrozen ? <><Unlock className="h-4 w-4" /> Unfreeze Node</> : <><Lock className="h-4 w-4" /> Freeze Account</>}
+                                                </Button>
+
+                                                <Button
+                                                    onClick={() => handleFlag(selectedUser._id, fullProfile?.user?.isFlagged)}
+                                                    className={cn(
+                                                        "h-14 flex-1 min-w-[200px] rounded-2xl font-black uppercase italic tracking-widest text-[11px] gap-3 transition-all",
+                                                        fullProfile?.user?.isFlagged ? "bg-emerald-500 text-black shadow-lg shadow-emerald-500/20" : "bg-amber-500/20 text-amber-500 border border-amber-500/30 hover:bg-amber-500 hover:text-white"
+                                                    )}
+                                                >
+                                                    <ShieldAlert className="h-4 w-4" /> {fullProfile?.user?.isFlagged ? 'Clear Signal Flag' : 'Flag Suspicious'}
+                                                </Button>
+
+                                                {isSuperAdmin && (
+                                                    <Button
+                                                        onClick={() => handleBan(selectedUser._id, fullProfile?.user?.isBanned)}
+                                                        className={cn(
+                                                            "h-14 flex-1 min-w-[200px] rounded-2xl font-black uppercase italic tracking-widest text-[11px] gap-3 transition-all",
+                                                            fullProfile?.user?.isBanned ? "bg-emerald-500 text-black shadow-lg shadow-emerald-500/20" : "bg-red-950 text-red-500 border border-red-500/30 hover:bg-red-600 hover:text-white"
+                                                        )}
+                                                    >
+                                                        <ShieldAlert className="h-4 w-4" /> {fullProfile?.user?.isBanned ? 'Revoke Ban' : 'Terminate Identity'}
+                                                    </Button>
+                                                )}
+
+                                                <Button
+                                                    onClick={() => { setShowProfile(false); router.push(`/admin/transactions?q=${selectedUser.walletAddress}`); }}
+                                                    className="h-14 flex-1 min-w-[200px] rounded-2xl bg-white/5 border border-white/10 text-white/60 font-black uppercase italic tracking-widest text-[11px] gap-3 hover:bg-white/10"
+                                                >
+                                                    <BarChart3 className="h-4 w-4" /> Audit Ledger
+                                                </Button>
+
+                                                <Button
+                                                    onClick={() => viewNetwork(selectedUser._id)}
+                                                    className="h-14 flex-1 min-w-[200px] rounded-2xl bg-white/5 border border-white/10 text-white/60 font-black uppercase italic tracking-widest text-[11px] gap-3 hover:bg-white/10"
+                                                >
+                                                    <Network className="h-4 w-4" /> Network Map
+                                                </Button>
+                                            </div>
+                                        </Card>
                                     </div>
-                                </div>
+                                )}
                             </div>
                         </motion.div>
                     </div>

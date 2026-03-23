@@ -106,8 +106,9 @@ router.get('/wallet/inflows', async (req, res) => {
         }
 
         const usdtAddress = process.env.USDT_CONTRACT_ADDRESS || '0x55d398326f99059fF775485246999027B3197955';
-        const apiKey = process.env.ETHERSCAN_API_KEY || process.env.BSCSCAN_API_KEY || '';
-        const explorerBase = process.env.ETHERSCAN_API_URL || 'https://api.bscscan.com/api';
+        const apiKey = process.env.BSCSCAN_API_KEY || '';
+        const chainId = Number(process.env.CHAIN_ID || 56);
+        const explorerBase = chainId === 97 ? 'https://api-testnet.bscscan.com/api' : 'https://api.bscscan.com/api';
 
         const params = new URLSearchParams({
             module: 'account',
@@ -123,12 +124,28 @@ router.get('/wallet/inflows', async (req, res) => {
         const response = await fetch(`${explorerBase}?${params.toString()}`);
         const data = await response.json();
 
+        const isDeprecated = (data.message && (
+            data.message.toLowerCase().includes('deprecated') ||
+            data.message.toLowerCase().includes('v1 endpoint') ||
+            data.message.toLowerCase().includes('upgrade your api plan') ||
+            data.message.toLowerCase().includes('free api access')
+        )) || (data.result && typeof data.result === 'string' && (
+            data.result.toLowerCase().includes('deprecated') ||
+            data.result.toLowerCase().includes('v1 endpoint') ||
+            data.result.toLowerCase().includes('upgrade your api plan') ||
+            data.result.toLowerCase().includes('free api access')
+        ));
+
         if (data.status === '1' && Array.isArray(data.result)) {
             // Filter to only inflows (to == address)
             const inflows = data.result.filter(
                 (tx) => tx.to?.toLowerCase() === address.toLowerCase()
             );
             return res.json({ status: 'success', transactions: inflows });
+        }
+
+        if (isDeprecated) {
+            console.warn(`[BSCScan] Advisory received for user ${address}: API restricted/deprecated. Returning empty.`);
         }
 
         // BSCScan returned no results or error — return empty (not a server error)

@@ -18,8 +18,8 @@ export const getWagmiConfig = () => {
             metadata: {
                 name: 'TRK Cybernetic',
                 description: 'TRK Blockchain Platform',
-                url: 'https://trk-project.onrender.com',
-                icons: ['https://trk-project.onrender.com/logo.png']
+                url: typeof window !== 'undefined' ? window.location.origin : 'https://trk-project.onrender.com',
+                icons: [typeof window !== 'undefined' ? `${window.location.origin}/logo.png` : 'https://trk-project.onrender.com/logo.png']
             }
         }),
     ];

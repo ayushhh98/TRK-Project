@@ -4,42 +4,30 @@ const localhostPattern = /(localhost|127\.0\.0\.1|0\.0\.0\.0|::1)/i;
 let localhostEnvWarned = false;
 
 const resolveApiOrigin = () => {
+    // 1. Explicit Environment Variable (Highest Priority)
     const envBase = process.env.NEXT_PUBLIC_API_URL?.trim();
     if (envBase) {
-        const normalized = normalizeBase(envBase.replace(/\/api\/?$/, ''));
-        if (typeof window !== 'undefined') {
-            const browserHost = window.location.hostname;
-            const isBrowserLocal = localhostPattern.test(browserHost);
-            if (!isBrowserLocal && localhostPattern.test(normalized)) {
-                if (!localhostEnvWarned) {
-                    console.warn('NEXT_PUBLIC_API_URL points to localhost on a non-local host; falling back to window origin.');
-                    localhostEnvWarned = true;
-                }
-            } else {
-                return normalized;
-            }
-        } else {
-            return normalized;
-        }
+        return normalizeBase(envBase.replace(/\/api\/?$/, ''));
     }
-    if (typeof window !== 'undefined') {
-        return normalizeBase(window.location.origin);
-    }
+
+    // 2. Production Fallback (Hardcoded for stability)
     if (process.env.NODE_ENV === 'production') {
         return 'https://trk-backend.onrender.com';
     }
+
+    // 3. Browser Context (Dynamic)
+    if (typeof window !== 'undefined') {
+        return normalizeBase(window.location.origin);
+    }
+
+    // 4. Local Development Default
     return 'http://localhost:5000';
 };
 
 export const getApiBase = () => resolveApiOrigin();
 
 export const getApiUrl = () => {
-    // Force localhost for development stability
-    if (process.env.NODE_ENV !== 'production' && !process.env.NEXT_PUBLIC_API_URL) {
-        return 'http://localhost:5000/api';
-    }
     const origin = resolveApiOrigin();
-    if (!origin) return '/api';
     return `${origin}/api`;
 };
 

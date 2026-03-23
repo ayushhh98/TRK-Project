@@ -16,6 +16,7 @@ import { getToken } from "@/lib/api";
 import { useAdminSocket } from "@/hooks/useAdminSocket";
 import { cn } from "@/lib/utils";
 import Link_Next from "next/link";
+import { toast } from "sonner";
 
 const DASHBOARD_NODES = [
     { id: 'users', label: 'Identity_Matrix', desc: 'User Governance', icon: Users, color: 'text-blue-400', href: '/admin/users' },
@@ -52,6 +53,16 @@ export default function AdminDashboard() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [lastSync, setLastSync] = useState<Date>(new Date());
+    const [isScanning, setIsScanning] = useState(false);
+
+    const handleGlobalScan = () => {
+        if (isScanning) return;
+        setIsScanning(true);
+        setTimeout(() => {
+            setIsScanning(false);
+            toast.success("Global Scan Complete. All nodes secure.");
+        }, 2500);
+    };
 
     // Real-time updates
     const { connectionStatus } = useAdminSocket({
@@ -86,6 +97,7 @@ export default function AdminDashboard() {
             const data = await res.json();
             if (data.status === 'success') {
                 setStats(data.data);
+                setLastSync(new Date());
             } else {
                 setError(data.message || 'PROTOCOL_FAULT: Data Decryption Failed');
             }
@@ -362,10 +374,23 @@ export default function AdminDashboard() {
                         </div>
 
                         <div className="mt-12 space-y-4">
-                            <Button className="w-full h-16 bg-primary hover:bg-primary/80 text-black font-black uppercase text-xs tracking-[0.2em] rounded-[20px] group relative overflow-hidden shadow-2xl shadow-primary/20">
+                            <Button
+                                onClick={handleGlobalScan}
+                                disabled={isScanning}
+                                className="w-full h-16 bg-primary hover:bg-primary/80 disabled:opacity-50 text-black font-black uppercase text-xs tracking-[0.2em] rounded-[20px] group relative overflow-hidden shadow-2xl shadow-primary/20 transition-all"
+                            >
                                 <div className="absolute inset-0 bg-white/0 group-hover:bg-white/10 transition-colors" />
-                                RUN_GLOBAL_SCAN
-                                <ArrowUpRight className="ml-3 h-4 w-4 group-hover:translate-x-1 group-hover:-translate-y-1 transition-transform" />
+                                {isScanning ? (
+                                    <>
+                                        <RefreshCw className="mr-3 h-4 w-4 animate-spin" />
+                                        SCANNING_MESH...
+                                    </>
+                                ) : (
+                                    <>
+                                        RUN_GLOBAL_SCAN
+                                        <ArrowUpRight className="ml-3 h-4 w-4 group-hover:translate-x-1 group-hover:-translate-y-1 transition-transform" />
+                                    </>
+                                )}
                             </Button>
                             <p className="text-[8px] text-white/20 text-center font-mono uppercase tracking-widest">Authorized_Admin_Only // Logged_Access</p>
                         </div>

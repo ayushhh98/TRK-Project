@@ -124,6 +124,19 @@ async function distributePracticeReferralBonuses(newUserId, io) {
 
                 await upline.save();
 
+                // Log simulation commission for Admin visibility
+                try {
+                    const PracticeCommission = require('../models/PracticeCommission');
+                    await PracticeCommission.create({
+                        user: upline._id,
+                        fromUser: newUser._id,
+                        amount: bonusAmount,
+                        level: level
+                    });
+                } catch (err) {
+                    console.error('Failed to log practice commission:', err);
+                }
+
                 // Real-time notification
                 if (io) {
                     io.to(upline._id.toString()).emit('practice_bonus', {

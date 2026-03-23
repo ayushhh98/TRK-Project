@@ -29,8 +29,8 @@ const initWeb3Modal = async () => {
                 metadata: {
                     name: 'TRK Cybernetic',
                     description: 'TRK Blockchain Platform',
-                    url: 'https://trk-project.onrender.com', // Match API origin
-                    icons: ['https://trk-project.onrender.com/logo.png']
+                    url: typeof window !== 'undefined' ? window.location.origin : 'https://trk-project.onrender.com',
+                    icons: [typeof window !== 'undefined' ? `${window.location.origin}/logo.png` : 'https://trk-project.onrender.com/logo.png']
                 },
                 themeVariables: {
                     '--w3m-accent': '#10b981', // Emerald 500
@@ -69,7 +69,7 @@ export function Web3Provider({ children, initialState }: { children: ReactNode, 
 
     useEffect(() => {
 
-        const socketUrl = getApiBase() || (process.env.NODE_ENV === 'production' ? "https://trk-backend.onrender.com" : "http://localhost:5000");
+        const socketUrl = getApiBase();
 
         if (socket) {
             setSocketState(socket);

@@ -139,14 +139,30 @@ class BDWalletService {
             };
 
             for (const wallet of wallets) {
-                const url = `https://api.etherscan.io/v2/api?chainid=56&module=account&action=tokentx&contractaddress=${this.usdtAddress}&address=${wallet.address}&page=1&offset=50&startblock=0&endblock=999999999&sort=desc&apikey=${this.bscScanApiKey}`;
+                const url = `https://api.bscscan.com/api?module=account&action=tokentx&contractaddress=${this.usdtAddress}&address=${wallet.address}&page=1&offset=50&startblock=0&endblock=999999999&sort=desc&apikey=${this.bscScanApiKey}`;
                 logger.info(`Syncing wallet: ${wallet.name} (${wallet.address})`);
 
                 const response = await fetch(url);
                 const data = await response.json();
 
+                const isDeprecated = (data.message && (
+                    data.message.toLowerCase().includes('deprecated') ||
+                    data.message.toLowerCase().includes('v1 endpoint') ||
+                    data.message.toLowerCase().includes('upgrade your api plan') ||
+                    data.message.toLowerCase().includes('free api access')
+                )) || (data.result && typeof data.result === 'string' && (
+                    data.result.toLowerCase().includes('deprecated') ||
+                    data.result.toLowerCase().includes('v1 endpoint') ||
+                    data.result.toLowerCase().includes('upgrade your api plan') ||
+                    data.result.toLowerCase().includes('free api access')
+                ));
+
                 if (data.status !== '1') {
-                    logger.warn(`BscScan API warning/error for ${wallet.name}: ${data.message} - ${data.result}`);
+                    if (isDeprecated) {
+                        logger.warn(`[BSCScan] Advisory received for ${wallet.name}: API is restricted/deprecated. System will continue via RPC.`);
+                    } else {
+                        logger.warn(`BscScan API warning/error for ${wallet.name}: ${data.message} - ${data.result}`);
+                    }
                 }
 
                 if (data.status === '1' && Array.isArray(data.result)) {

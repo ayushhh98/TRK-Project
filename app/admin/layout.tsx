@@ -63,7 +63,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             {/* Main Content */}
             <main className="flex-1 ml-[260px] transition-all duration-300 min-h-screen flex flex-col">
                 {/* Header */}
-                <header className="h-20 bg-[#0a0a0a]/50 backdrop-blur-xl border-b border-white/5 flex items-center justify-between px-8 sticky top-0 z-40">
+                <header className="h-20 bg-[#0a0a0a]/50 backdrop-blur-xl border-b border-white/5 flex items-center justify-between px-10 sticky top-0 z-40">
                     <div className="flex items-center gap-4">
                         <div className="text-[10px] font-black uppercase tracking-[0.3em] text-white/40">
                             Protocol Hub / <span className="text-primary italic">{pathname.split('/').pop()?.replace(/-/g, ' ')}</span>
@@ -82,7 +82,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                 </header>
 
                 {/* Page Content */}
-                <div className="p-8 pb-20">
+                <div className="flex-1 w-full p-4 md:p-8 lg:p-10 pb-20">
                     {children}
                 </div>
             </main>

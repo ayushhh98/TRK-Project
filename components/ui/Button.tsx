@@ -14,6 +14,26 @@ interface ButtonProps extends HTMLMotionProps<"button"> {
 
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
     ({ className, variant = "primary", size = "md", isLoading, children, disabled, ...props }, ref) => {
+        const [mounted, setMounted] = React.useState(false);
+
+        React.useEffect(() => {
+            setMounted(true);
+        }, []);
+
+        if (!mounted) {
+            return (
+                <button
+                    className={cn(
+                        "inline-flex items-center justify-center rounded-lg font-medium transition-colors opacity-0",
+                        size === "sm" ? "h-9 px-3" : size === "md" ? "h-11 px-6" : size === "lg" ? "h-14 px-8" : "h-10 w-10",
+                        className
+                    )}
+                    disabled
+                >
+                    {children}
+                </button>
+            );
+        }
 
         // Base styles
         const baseStyles = "inline-flex items-center justify-center rounded-lg font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-50 disabled:pointer-events-none ring-offset-background";

@@ -2,9 +2,11 @@
 
 import { useState, useEffect } from 'react';
 import { useSocket } from '@/components/providers/Web3Provider';
-import { adminAPI } from '@/lib/api';
+import { adminAPI, getToken } from '@/lib/api';
 
 export interface SystemConfig {
+// ... existing interface ...
+// (We only replace fetchConfig)
     emergencyFlags: {
         pauseRegistrations: boolean;
         pauseDeposits: boolean;
@@ -54,7 +56,14 @@ export function useConfig() {
 
     const fetchConfig = async () => {
         try {
-            const res = await fetch('/api/admin/config');
+            const token = getToken();
+            if (!token) {
+                setIsLoading(false);
+                return;
+            }
+            const res = await fetch('/api/admin/config', {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
             const data = await res.json();
             if (data.status === 'success') {
                 setConfig(data.data);

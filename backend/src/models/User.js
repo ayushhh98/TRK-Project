@@ -168,11 +168,26 @@ const userSchema = new mongoose.Schema({
         totalPracticeVolume: { type: Number, default: 0 },
         totalRealVolume: { type: Number, default: 0 }
     },
+    isWithdrawalFrozen: { type: Boolean, default: false },
     isActive: { type: Boolean, default: true },
+    isFlagged: { type: Boolean, default: false },
+    flagReason: { type: String, default: null },
     lastLoginAt: { type: Date, default: null },
     lastActionAt: { type: Date, default: null },
     createdAt: { type: Date, default: Date.now },
-    updatedAt: { type: Date, default: Date.now }
+    updatedAt: { type: Date, default: Date.now },
+    deposits: [{
+        amount: Number,
+        txHash: String,
+        createdAt: { type: Date, default: Date.now }
+    }],
+    withdrawals: [{
+        amount: Number,
+        walletType: String,
+        txHash: String,
+        status: { type: String, default: 'pending' },
+        createdAt: { type: Date, default: Date.now }
+    }]
 });
 
 // Update activation tier based on total deposits

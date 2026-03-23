@@ -7,7 +7,8 @@ import { Input } from "@/components/ui/Input";
 import {
     ArrowLeft, Wallet, Lock, Unlock, CheckCircle2, XCircle,
     ArrowUpRight, Shield, Zap, Gift, TrendingUp, Coins,
-    ChevronRight, AlertCircle, RefreshCcw, Cpu, Crown, Activity
+    ChevronRight, AlertCircle, RefreshCcw, Cpu, Crown, Activity,
+    History as HistoryIcon
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
@@ -321,6 +322,90 @@ export default function ActivationPage() {
                                     </div>
                                 </motion.div>
                             ))}
+                        </div>
+
+                        {/* Reality Integration Log (Deposit History) */}
+                        <div className="space-y-6 pt-8">
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-4">
+                                    <div className="h-8 w-1 bg-primary rounded-full shadow-[0_0_15px_rgba(var(--primary),0.8)]" />
+                                    <h3 className="text-2xl font-black text-white uppercase tracking-tighter">Integration <span className="text-primary font-normal">History</span></h3>
+                                </div>
+                                <div className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest px-3 py-1 bg-white/5 rounded-full border border-white/5">
+                                    Total_Credits: {user?.deposits?.length || 0}
+                                </div>
+                            </div>
+
+                            <Card className="bg-zinc-950/40 border-white/5 rounded-[32px] overflow-hidden relative group">
+                                <div className="overflow-x-auto">
+                                    <table className="w-full text-left border-collapse">
+                                        <thead>
+                                            <tr className="border-b border-white/5 bg-white/[0.02]">
+                                                <th className="px-6 py-5 text-[10px] font-mono text-zinc-500 uppercase tracking-[0.2em]">Timestamp</th>
+                                                <th className="px-6 py-5 text-[10px] font-mono text-zinc-500 uppercase tracking-[0.2em]">Amount</th>
+                                                <th className="px-6 py-5 text-[10px] font-mono text-zinc-500 uppercase tracking-[0.2em]">Status</th>
+                                                <th className="px-6 py-5 text-[10px] font-mono text-zinc-500 uppercase tracking-[0.2em] text-right">Verification</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-white/5">
+                                            {user?.deposits && user.deposits.length > 0 ? (
+                                                [...user.deposits].reverse().map((dep: any, idx) => (
+                                                    <motion.tr 
+                                                        initial={{ opacity: 0 }}
+                                                        animate={{ opacity: 1 }}
+                                                        transition={{ delay: idx * 0.05 }}
+                                                        key={dep.txHash || idx} 
+                                                        className="hover:bg-white/[0.02] transition-colors group/row"
+                                                    >
+                                                        <td className="px-6 py-5">
+                                                            <div className="text-xs font-bold text-white flex items-center gap-2">
+                                                                {new Date(dep.createdAt).toLocaleDateString()}
+                                                                <span className="text-[10px] font-mono text-zinc-600">
+                                                                    {new Date(dep.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit'})}
+                                                                </span>
+                                                            </div>
+                                                        </td>
+                                                        <td className="px-6 py-5">
+                                                            <div className="text-sm font-black text-primary">
+                                                                +{Number(dep.amount).toFixed(2)} <span className="text-[10px] text-zinc-500 uppercase tracking-tighter">USDT</span>
+                                                            </div>
+                                                        </td>
+                                                        <td className="px-6 py-5">
+                                                            <div className="flex items-center gap-2">
+                                                                <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+                                                                <span className="text-[10px] font-mono text-zinc-400 uppercase tracking-widest font-black">Success</span>
+                                                            </div>
+                                                        </td>
+                                                        <td className="px-6 py-5 text-right">
+                                                            {dep.txHash ? (
+                                                                <a 
+                                                                    href={`https://bscscan.com/tx/${dep.txHash}`} 
+                                                                    target="_blank" 
+                                                                    rel="noopener noreferrer"
+                                                                    className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-primary/5 border border-primary/20 text-primary hover:bg-primary/20 transition-all text-[10px] font-mono font-black"
+                                                                >
+                                                                    EXPLORER <ArrowUpRight className="h-3 w-3" />
+                                                                </a>
+                                                            ) : (
+                                                                <span className="text-[10px] font-mono text-zinc-700 italic">SYSTEM_CREDIT</span>
+                                                            )}
+                                                        </td>
+                                                    </motion.tr>
+                                                ))
+                                            ) : (
+                                                <tr>
+                                                    <td colSpan={4} className="px-6 py-20 text-center">
+                                                        <div className="flex flex-col items-center gap-4 opacity-20 group-hover:opacity-40 transition-opacity">
+                                                            <HistoryIcon className="h-10 w-10 text-zinc-500" />
+                                                            <span className="text-[10px] font-mono text-zinc-500 uppercase tracking-[0.3em]">No_Integration_Signals_Detected</span>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            )}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </Card>
                         </div>
                     </div>
 

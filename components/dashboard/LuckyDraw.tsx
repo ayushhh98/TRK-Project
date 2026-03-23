@@ -131,7 +131,7 @@ export function LuckyDraw() {
     return (
         <Card className="h-full bg-black border border-white/10 rounded-[2.5rem] overflow-hidden group hover:border-amber-500/30 transition-all duration-500 shadow-2xl relative font-mono">
             {/* Background Effects */}
-            <div className="absolute inset-0 z-0 pointer-events-none opacity-[0.03] bg-[url('https://grainy-gradients.vercel.app/noise.svg')]" />
+            <div className="absolute inset-0 z-0 pointer-events-none opacity-[0.03] bg-[url('/noise.svg')]" />
             <div className="absolute inset-0 pointer-events-none z-20 bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.1)_50%),linear-gradient(90deg,rgba(255,215,0,0.02),rgba(0,255,255,0.01),rgba(255,165,0,0.02))] bg-[length:100%_4px,3px_100%] opacity-40 group-hover:opacity-60 transition-opacity" />
 
             <CardContent className="p-8 space-y-6 relative z-10">

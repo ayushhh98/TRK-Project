@@ -72,7 +72,7 @@ class JackpotService {
     /**
      * Purchase tickets
      */
-    async purchaseTickets(userId, quantity = 1) {
+    async purchaseTickets(userId, quantity = 1, entrySource = 'manual') {
         const round = await this.getActiveRound();
 
         // Validation
@@ -111,12 +111,22 @@ class JackpotService {
         // Add tickets to round
         const tickets = [];
         for (let i = 0; i < quantity; i++) {
-            const ticketId = round.addTicket(userId, user.walletAddress, 1);
+            const ticketId = round.addTicket(userId, user.walletAddress, 1, entrySource);
             tickets.push({
                 ticketId,
                 purchasedAt: new Date()
             });
         }
+
+        const TransactionService = require('./transactionService');
+        await TransactionService.logTransaction({
+            userId,
+            walletAddress: user.walletAddress,
+            type: 'LUCKY_DRAW_TICKET',
+            amount: totalCost,
+            source: `Round ${round.roundNumber}`,
+            metadata: { quantity, entrySource, tickets: tickets.map(t => t.ticketId) }
+        });
 
         // Calculate surplus
         round.calculateSurplus();
@@ -279,6 +289,16 @@ class JackpotService {
                             newBalance: user.realBalances.lucky
                         });
                     }
+
+                    const TransactionService = require('./transactionService');
+                    await TransactionService.logTransaction({
+                        userId: winner.userId,
+                        walletAddress: winner.walletAddress,
+                        type: 'LUCKY_DRAW_REWARD',
+                        amount: winner.prize,
+                        source: `Round ${round.roundNumber}`,
+                        metadata: { rank: winner.rank, ticketId: winner.ticketId }
+                    });
 
                     // Update winner status
                     winner.status = 'completed';

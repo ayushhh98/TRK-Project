@@ -56,6 +56,7 @@ const menuGroups = [
         label: "Finance Engine",
         items: [
             { id: "financials", label: "Treasury", icon: BarChart3, path: "/admin/financials" },
+            { id: "withdrawals", label: "Withdrawals", icon: Receipt, path: "/admin/financials/withdrawals", badge: "Live" },
             { id: "economics", label: "Economics", icon: TrendingUp, path: "/admin/economics" },
             { id: "transactions", label: "Ledger", icon: History, path: "/admin/transactions", badge: "Live" },
             { id: "roi", label: "Yield Control", icon: Zap, path: "/admin/roi" },
@@ -73,10 +74,11 @@ const menuGroups = [
     {
         label: "Governance",
         items: [
-            { id: "audit", label: "Audit Stream", icon: Clock, path: "/admin/audit" },
-            { id: "team", label: "Team & Access", icon: Shield, path: "/admin/team" },
+            { id: "audit", label: "Audit Stream", icon: Clock, path: "/admin/audit", superAdminOnly: true },
+            { id: "team", label: "Team & Access", icon: Shield, path: "/admin/team", superAdminOnly: true },
             { id: "legal", label: "Compliance", icon: FileText, path: "/admin/legal" },
-            { id: "emergency", label: "Defcon 1", icon: AlertTriangle, path: "/admin/emergency", badge: "⚡" },
+            { id: "settings", label: "Master Key", icon: Activity, path: "/admin/settings", badge: "ROOT", superAdminOnly: true },
+            { id: "emergency", label: "Defcon 1", icon: AlertTriangle, path: "/admin/emergency", badge: "⚡", superAdminOnly: true },
         ]
     }
 ];
@@ -84,7 +86,7 @@ const menuGroups = [
 export function AdminSidebar({ activeTab, onTabChange }: AdminSidebarProps) {
     const pathname = usePathname();
     const router = useRouter();
-    const { disconnect } = useWallet();
+    const { user, disconnect } = useWallet();
     const { connectionStatus } = useAdminSocket();
     const [isOpen, setIsOpen] = useState(false);
     const [isMounted, setIsMounted] = useState(false);
@@ -153,12 +155,19 @@ export function AdminSidebar({ activeTab, onTabChange }: AdminSidebarProps) {
 
                     {/* Menu Navigation */}
                     <nav className="flex-1 px-4 space-y-6 overflow-y-auto custom-scrollbar pb-8 pt-4">
-                        {menuGroups.map((group) => (
+                        {menuGroups.map((group) => {
+                            // Filter items based on role
+                            const isSuperAdmin = user?.role === 'superadmin';
+                            const visibleItems = group.items.filter((item: any) => !item.superAdminOnly || isSuperAdmin);
+                            
+                            if (visibleItems.length === 0) return null;
+
+                            return (
                             <div key={group.label} className="space-y-1">
                                 <h3 className="px-5 text-[9px] font-black uppercase tracking-[0.3em] text-white/20 mb-3">
                                     {group.label}
                                 </h3>
-                                {group.items.map((item) => {
+                                {visibleItems.map((item) => {
                                     const isActive = isMounted && (pathname === item.path || (onTabChange && activeTab === item.id));
                                     return (
                                         <button
@@ -219,7 +228,8 @@ export function AdminSidebar({ activeTab, onTabChange }: AdminSidebarProps) {
                                     );
                                 })}
                             </div>
-                        ))}
+                            );
+                        })}
                     </nav>
 
                     <div className="p-6 border-t border-white/5 bg-black/40 backdrop-blur-3xl space-y-4">

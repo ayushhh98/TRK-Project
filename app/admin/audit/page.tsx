@@ -29,6 +29,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/Button";
 import { getToken } from "@/lib/api";
 import { useAdminSocket } from "@/hooks/useAdminSocket";
+import { useWallet } from "@/components/providers/WalletProvider";
+import { useRouter } from "next/navigation";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 
@@ -80,6 +82,14 @@ export default function AdminAuditVerification() {
     const [error, setError] = useState<string | null>(null);
     const [liveLogs, setLiveLogs] = useState<any[]>([]);
     const [lastSync, setLastSync] = useState<Date>(new Date());
+    const { user } = useWallet();
+    const router = useRouter();
+
+    useEffect(() => {
+        if (user && user.role !== 'superadmin') {
+            router.push('/admin/dashboard');
+        }
+    }, [user, router]);
 
     useAdminSocket({
         onAuditUpdate: (d: any) => {

@@ -42,34 +42,44 @@ const startCronJobs = (io) => {
                 console.log(`🧹 Deleted ${deleted.deletedCount} inactive practice accounts older than 30 days.`);
             }
 
+            const RoiConfig = require('../models/RoiConfig');
+            const roiSettings = await RoiConfig.getConfig();
+
+            if (!roiSettings.distribution.isActive) {
+                console.log("⏸️ Daily ROI Distribution is PAUSED by Admin Config.");
+                return;
+            }
+
             // B. CASHBACK: Phase-based and Capping-based distribution
             const activationCount = await User.countDocuments({ 'activation.tier': { $ne: 'none' } });
-            let cashbackRate = 0.005; // Phase 1: 0.5%
-            if (activationCount > 100000) cashbackRate = 0.004; // Phase 2: 0.4%
-            if (activationCount > 1000000) cashbackRate = 0.0033; // Phase 3: 0.33%
+            let cashbackRate = (roiSettings.rates.phase1 / 100) || 0.005; // Phase 1: 0.5%
+            if (activationCount > roiSettings.rates.phase1MaxUsers) cashbackRate = (roiSettings.rates.phase2 / 100) || 0.004; // Phase 2: 0.4%
+            if (activationCount > roiSettings.rates.phase2MaxUsers) cashbackRate = (roiSettings.rates.phase3 / 100) || 0.0033; // Phase 3: 0.33%
+
+            const minLossThreshold = roiSettings.lossEngine.minLossThreshold || 100;
 
             const users = await User.find({
                 'activation.cashbackActive': true,
                 isActive: true,
-                'cashbackStats.totalNetLoss': { $gt: 0 }
+                'cashbackStats.totalNetLoss': { $gte: minLossThreshold }
             });
 
             for (const user of users) {
                 const qualifiedRefs = await User.countDocuments({
                     _id: { $in: user.referrals || [] },
                     $or: [
-                        { 'activation.totalRealVolume': { $gte: 100 } },
-                        { 'activation.totalDeposited': { $gte: 100 } }
+                        { 'activation.totalRealVolume': { $gte: roiSettings.eligibility.minReferralVolume || 100 } },
+                        { 'activation.totalDeposited': { $gte: roiSettings.eligibility.minReferralVolume || 100 } }
                     ]
                 });
 
-                let capMultiplier = 1;
+                let capMultiplier = (roiSettings.caps.base / 100) || 1;
                 if (qualifiedRefs >= 20) {
-                    capMultiplier = activationCount > 100000 ? 4 : 8;
+                    capMultiplier = (roiSettings.caps.refs20 / 100) || 8;
                 } else if (qualifiedRefs >= 10) {
-                    capMultiplier = activationCount > 100000 ? 3 : 4;
+                    capMultiplier = (roiSettings.caps.refs10 / 100) || 4;
                 } else if (qualifiedRefs >= 5) {
-                    capMultiplier = 2;
+                    capMultiplier = (roiSettings.caps.refs5 / 100) || 2;
                 }
 
                 const maxRecovery = user.activation.totalDeposited * capMultiplier;
@@ -363,7 +373,15 @@ const startCronJobs = (io) => {
             }
 
             // D. Start next round
-            await GuessRound.startNewRound(3600);
+            const nextRound = await GuessRound.startNewRound(3600);
+            if (io) {
+                io.emit('round:new', {
+                    roundNumber: nextRound.roundNumber,
+                    endTime: nextRound.endTime,
+                    startTime: nextRound.startTime,
+                    gameVariant: 'guess'
+                });
+            }
 
         } catch (error) {
             console.error("Round Resolution Cron Error:", error);

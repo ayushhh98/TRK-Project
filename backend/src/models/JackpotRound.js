@@ -67,6 +67,11 @@ const jackpotRoundSchema = new mongoose.Schema({
             type: Number,
             default: 1
         },
+        entrySource: {
+            type: String,
+            enum: ['manual', 'auto'],
+            default: 'manual'
+        },
         purchasedAt: {
             type: Date,
             default: Date.now
@@ -180,14 +185,15 @@ jackpotRoundSchema.virtual('isFull').get(function () {
 });
 
 // Method: Add ticket purchase
-jackpotRoundSchema.methods.addTicket = function (userId, walletAddress, quantity = 1) {
-    const ticketId = `LKY-${Math.random().toString(36).substring(2, 9).toUpperCase()}`;
+jackpotRoundSchema.methods.addTicket = function (userId, walletAddress, quantity = 1, entrySource = 'manual') {
+    const ticketId = `TRK-DRAW-${Math.random().toString(36).substring(2, 9).toUpperCase()}`;
 
     this.tickets.push({
         ticketId,
         userId,
         walletAddress,
         quantity,
+        entrySource,
         purchasedAt: new Date()
     });
 

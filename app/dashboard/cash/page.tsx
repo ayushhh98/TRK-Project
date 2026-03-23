@@ -13,7 +13,7 @@ import { BalanceAnimator } from "@/components/cash/BalanceAnimator";
 import { ConfettiEffect } from "@/components/effects/ConfettiEffect";
 import { Card, CardContent } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
-import { ArrowLeft, TrendingUp, Shield, Activity, Lock, Globe, ExternalLink, Zap, Smartphone, Landmark, Eye, EyeOff, Wallet, Repeat, Plus, CheckCircle2, ArrowUpRight } from "lucide-react";
+import { ArrowLeft, TrendingUp, Shield, Activity, Lock, Globe, ExternalLink, Zap, Smartphone, Landmark, Eye, EyeOff, Wallet, Repeat, Plus, CheckCircle2, ArrowUpRight, RefreshCw } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { useSearchParams, useRouter } from "next/navigation";
@@ -26,7 +26,7 @@ import { NotificationPanel } from "@/components/notifications/NotificationPanel"
 function CashDashboardContent() {
     const {
         realBalances, usdtBalance, nativeBalance,
-        unclaimedRounds, claimWin, claimLoss, refetchUnclaimed, faucet,
+        unclaimedRounds, claimWin, claimLoss, refetchUnclaimed, refreshUser, faucet,
         isConnected, isLoading, user, deposits, gameHistory, isRegisteredOnChain,
         address, connect, recentWallets, switchWallet, isSwitchingWallet, deposit
     } = useWallet();
@@ -35,6 +35,7 @@ function CashDashboardContent() {
     const [isWithdrawOpen, setIsWithdrawOpen] = useState(false);
     const [isDepositOpen, setIsDepositOpen] = useState(false);
     const [hideBalances, setHideBalances] = useState(false);
+    const [isRefreshing, setIsRefreshing] = useState(false);
     const [latency, setLatency] = useState(12);
     const searchParams = useSearchParams();
     const activeWallet = address;
@@ -85,6 +86,18 @@ function CashDashboardContent() {
 
     const executeDeposit = async (amount: number) => {
         await deposit(amount);
+    };
+
+    const handleRefresh = async () => {
+        setIsRefreshing(true);
+        try {
+            await Promise.all([
+                refetchUnclaimed(),
+                refreshUser()
+            ]);
+        } finally {
+            setTimeout(() => setIsRefreshing(false), 800);
+        }
     };
 
     return (
@@ -160,11 +173,13 @@ function CashDashboardContent() {
                                 <h2 className="text-[10px] font-black uppercase tracking-[0.4em] text-white/40">UNCLAIMED_QUANTUM_REWARDS</h2>
                             </div>
                             <Button
-                                onClick={() => refetchUnclaimed()}
+                                onClick={handleRefresh}
+                                disabled={isRefreshing}
                                 variant="ghost"
-                                className="text-[8px] font-black uppercase tracking-widest text-white/20 hover:text-white"
+                                className="text-[8px] font-black uppercase tracking-widest text-white/20 hover:text-white transition-all"
                             >
-                                REFRESH_LEDGER
+                                <RefreshCw className={cn("h-3 w-3 mr-2", isRefreshing && "animate-spin")} />
+                                {isRefreshing ? 'SYNCING...' : 'REFRESH_LEDGER'}
                             </Button>
                         </div>
 

@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
@@ -242,6 +242,7 @@ interface WalletContextType {
     // System Configuration
     systemConfig: SystemConfig | null;
     isConfigLoading: boolean;
+    socket: any;
 }
 
 const WalletContext = createContext<WalletContextType | undefined>(undefined);
@@ -2712,7 +2713,8 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
                 applyReferral,
                 topupLuckyWallet,
                 systemConfig,
-                isConfigLoading
+                isConfigLoading,
+                socket
             }), [
                 user,
                 practiceBalance,
@@ -2742,7 +2744,8 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
                 applyReferral,
                 topupLuckyWallet,
                 systemConfig,
-                isConfigLoading
+                isConfigLoading,
+                socket
             ])}
         >
             {children}

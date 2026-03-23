@@ -133,14 +133,19 @@ export default function EconomicsOverhaul() {
     const [actionType, setActionType] = useState<'PAUSE' | 'RESUME'>('PAUSE');
     const [reason, setReason] = useState('');
     const [submitting, setSubmitting] = useState(false);
+    const [isRefreshing, setIsRefreshing] = useState(false);
 
     const { connectionStatus } = useAdminSocket({
         onEconomicsUpdate: (data: EconomyStats) => {
             setStats(data);
+        },
+        onEconomyLog: (log: EconomyLog) => {
+            setLogs(prev => [log, ...prev].slice(0, 50));
         }
     });
 
-    const fetchData = async () => {
+    const fetchData = async (manual = false) => {
+        if (manual) setIsRefreshing(true);
         try {
             const token = getToken();
             const [dashRes, logsRes] = await Promise.all([
@@ -157,6 +162,7 @@ export default function EconomicsOverhaul() {
             console.error('Failed to sync with Economics Core:', error);
         } finally {
             setLoading(false);
+            if (manual) setTimeout(() => setIsRefreshing(false), 800);
         }
     };
 
@@ -453,8 +459,8 @@ export default function EconomicsOverhaul() {
                                 <p className="text-[10px] text-white/30 uppercase tracking-[0.3em] mt-1 font-mono">Economic Security Interventions</p>
                             </div>
                         </div>
-                        <Button variant="ghost" size="icon" onClick={() => fetchData()}>
-                            <RefreshCcw className="h-4 w-4 text-white/20" />
+                        <Button variant="ghost" size="icon" onClick={() => fetchData(true)} disabled={isRefreshing}>
+                            <RefreshCcw className={cn("h-4 w-4 text-white/20", isRefreshing && "animate-spin text-white")} />
                         </Button>
                     </CardHeader>
                     <CardContent className="p-0">

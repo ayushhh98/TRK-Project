@@ -29,6 +29,8 @@ let observerInterval;
 let jackpotService;
 let practiceService;
 let bdWalletService;
+let ledgerRpcCache = { data: null, timestamp: 0 };
+let blockCache = new Map(); // Cache for block metadata (timestamps)
 
 // Apply IP whitelisting to all admin routes
 router.use(requireIpWhitelist);
@@ -499,60 +501,72 @@ router.broadcastROIStats = async () => {
     try {
         if (!ioInstance) return;
 
-        const [config, totalUsers, platformStats] = await Promise.all([
-            SystemConfig.getConfig(),
-            User.countDocuments({ role: 'player' }),
-            PlatformStats.getToday()
+        const [aggResult] = await User.aggregate([
+            {
+                $group: {
+                    _id: null,
+                    totalDeposited: { $sum: '$totalDeposited' },
+                    totalWithdrawn: { $sum: '$totalWithdrawn' },
+                    totalCashback: { $sum: '$realBalances.cashback' },
+                    totalCount: { $sum: 1 }
+                }
+            }
         ]);
+        const agg = aggResult || { totalDeposited: 0, totalWithdrawn: 0, totalCashback: 0, totalCount: 0 };
 
-        // Determine active cashback phase
-        let activeCashback = config.economics?.cashbackPhase1 || 0.5;
-        let activePhase = 'Phase 1 (≤100k Users)';
-        if (totalUsers > 1000000) { activeCashback = config.economics?.cashbackPhase3 || 0.33; activePhase = 'Phase 3 (>1M Users)'; }
-        else if (totalUsers > 100000) { activeCashback = config.economics?.cashbackPhase2 || 0.40; activePhase = 'Phase 2 (≤1M Users)'; }
+        const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+        const todayTurnover = agg.totalDeposited * 0.05; // Approximate daily slice
 
-        const dailyTurnover = platformStats.dailyTurnover || 0;
-        const cashbackPool = dailyTurnover * (activeCashback / 100);
-
-        // Count users with realBalances.cashback > 0 as eligible
-        const eligibleAgg = await User.aggregate([
-            { $match: { role: 'player', 'realBalances.cashback': { $gt: 0 } } },
-            { $group: { _id: null, total: { $sum: '$realBalances.cashback' }, count: { $sum: 1 } } }
+        // Multiplier buckets based on referral count
+        const mults = { '1x': 0, '2x': 0, '4x': 0, '8x': 0 };
+        const userMults = await User.aggregate([
+            {
+                $project: {
+                    directReferrals: { $ifNull: ['$directReferrals', 0] }
+                }
+            },
+            {
+                $group: {
+                    _id: null,
+                    mult1: { $sum: { $cond: [{ $lt: ['$directReferrals', 5] }, 1, 0] } },
+                    mult2: { $sum: { $cond: [{ $and: [{ $gte: ['$directReferrals', 5] }, { $lt: ['$directReferrals', 10] }] }, 1, 0] } },
+                    mult4: { $sum: { $cond: [{ $and: [{ $gte: ['$directReferrals', 10] }, { $lt: ['$directReferrals', 20] }] }, 1, 0] } },
+                    mult8: { $sum: { $cond: [{ $gte: ['$directReferrals', 20] }, 1, 0] } }
+                }
+            }
         ]);
-        const totalCashbackDistributed = eligibleAgg[0]?.total || 0;
-        const eligibleUsers = eligibleAgg[0]?.count || 0;
+        if (userMults[0]) {
+            mults['1x'] = userMults[0].mult1;
+            mults['2x'] = userMults[0].mult2;
+            mults['4x'] = userMults[0].mult4;
+            mults['8x'] = userMults[0].mult8;
+        }
 
-        // Multiplier distribution by referral count
-        const multAgg = await User.aggregate([
-            { $match: { role: 'player' } },
-            { $project: { refCount: { $ifNull: ['$referralStats.totalDirectReferrals', 0] } } },
-            { $bucket: { groupBy: '$refCount', boundaries: [0, 5, 10, 20], default: '20+', output: { count: { $sum: 1 } } } }
-        ]);
-        const multMap = { '1x': 0, '2x': 0, '4x': 0, '8x': 0 };
-        multAgg.forEach((b) => {
-            if (b._id === 0) multMap['1x'] = b.count;
-            else if (b._id === 5) multMap['2x'] = b.count;
-            else if (b._id === 10) multMap['4x'] = b.count;
-            else multMap['8x'] = b.count;
-        });
+        // Eligible users = those with deposits
+        const eligibleUsers = await User.countDocuments({ totalDeposited: { $gt: 0 } });
 
-        // ROI-on-ROI pools (50/50 split of cashback pool)
-        const roi2Total = cashbackPool * 0.1;
+        let activePhase = 'PHASE_1_GENESIS', dailyCashbackPercent = 50;
+        if (agg.totalCount >= 1000000) { dailyCashbackPercent = 20; activePhase = 'PHASE_3_MATURITY'; }
+        else if (agg.totalCount >= 100000) { dailyCashbackPercent = 35; activePhase = 'PHASE_2_GROWTH'; }
+
+        const todaysCashbackPool = agg.totalDeposited * (dailyCashbackPercent / 100) * 0.01; // 1% of phase allocation daily
+
+        const roi2Pool = todaysCashbackPool * 0.1; // 10% of today's pool goes to ROI on ROI
 
         ioInstance.emit('admin:roi_update', {
             summary: {
                 totalEligibleUsers: eligibleUsers,
-                totalCashbackDistributed,
-                todaysCashbackPool: cashbackPool,
-                dailyCashbackPercent: activeCashback,
+                totalCashbackDistributed: agg.totalCashback,
+                todaysCashbackPool,
+                dailyCashbackPercent,
                 activePhase,
-                distributionStatus: 'Running'
+                distributionStatus: 'Active'
             },
-            multipliers: multMap,
+            multipliers: mults,
             roiOnRoi: {
-                totalGenerated: roi2Total,
-                userRecovery: roi2Total * 0.5,
-                sharedToUplines: roi2Total * 0.5
+                totalGenerated: roi2Pool,
+                userRecovery: roi2Pool * 0.5,
+                sharedToUplines: roi2Pool * 0.5
             },
             levelBreakdown: [
                 { level: 'Level 1', share: '20%', role: 'Direct Sponsors' },
@@ -1003,6 +1017,22 @@ router.get('/practice/dashboard', auth, requireAdmin, async (req, res) => {
             ? ((convertedToReal / eligibleForConversion) * 100).toFixed(2)
             : '0.00';
 
+        const PracticeCommission = require('../models/PracticeCommission');
+        const mlmLogs = await PracticeCommission.aggregate([
+            {
+                $group: {
+                    _id: null,
+                    lvl1: { $sum: { $cond: [{ $eq: ["$level", 1] }, "$amount", 0] } },
+                    lvl2_5: { $sum: { $cond: [{ $and: [{ $gte: ["$level", 2] }, { $lte: ["$level", 5] }] }, "$amount", 0] } },
+                    lvl6_10: { $sum: { $cond: [{ $and: [{ $gte: ["$level", 6] }, { $lte: ["$level", 10] }] }, "$amount", 0] } },
+                    lvl11_15: { $sum: { $cond: [{ $and: [{ $gte: ["$level", 11] }, { $lte: ["$level", 15] }] }, "$amount", 0] } },
+                    total: { $sum: "$amount" }
+                }
+            }
+        ]);
+
+        const mlmActualFlow = mlmLogs[0] || { lvl1: 0, lvl2_5: 0, lvl6_10: 0, lvl11_15: 0, total: 0 };
+
         res.json({
             status: 'success',
             data: {
@@ -1011,7 +1041,7 @@ router.get('/practice/dashboard', auth, requireAdmin, async (req, res) => {
                     activePracticeUsers,
                     expiredAccounts,
                     practiceBalanceIssued,
-                    burnedPracticePoints: expiredAccounts * (bonusControl.bonusAmount || 100)
+                    burnedPracticePoints: (gameStats.practiceGamesPlayed - gameStats.practiceWins) * bonusControl.bonusAmount
                 },
                 bonusControl,
                 gameLogic: gameStats,
@@ -1020,13 +1050,7 @@ router.get('/practice/dashboard', auth, requireAdmin, async (req, res) => {
                     convertedToRealCount: convertedToReal,
                     conversionRate: totalConverted
                 },
-                mlmActualFlow: {
-                    lvl1: practiceBalanceIssued * 0.10,
-                    lvl2_5: practiceBalanceIssued * 0.08,
-                    lvl6_10: practiceBalanceIssued * 0.04,
-                    lvl11_15: practiceBalanceIssued * 0.025,
-                    total: practiceBalanceIssued * 0.245
-                }
+                mlmActualFlow
             }
         });
     } catch (error) {
@@ -1250,11 +1274,10 @@ router.get('/users', auth, requireAdmin, async (req, res) => {
         }
 
         const users = await User.find(query)
-            .select('walletAddress email role isBanned isFrozen isActive practiceBalance rewardPoints realBalances activation referralCode createdAt')
+            .select('walletAddress email role isBanned isFrozen isActive practiceBalance rewardPoints realBalances activation referralCode createdAt clubRank')
             .limit(limitNum)
             .skip((pageNum - 1) * limitNum)
-            .sort({ createdAt: -1 })
-            .lean();
+            .sort({ createdAt: -1 });
 
         const count = await User.countDocuments(query);
         const normalizedUsers = users.map((user) => ({
@@ -1313,11 +1336,10 @@ router.get('/users/search', auth, requireAdmin, async (req, res) => {
 
         const [users, total] = await Promise.all([
             User.find(query)
-                .select('walletAddress email role isBanned isFrozen isActive activation referralCode referredBy realBalances practiceBalance createdAt lastLoginAt')
-                .limit(limitNum)
-                .skip((pageNum - 1) * limitNum)
+                .select('walletAddress email role isBanned isFrozen isActive activation referralCode referredBy realBalances practiceBalance createdAt lastLoginAt clubRank')
                 .sort({ createdAt: -1 })
-                .lean(),
+                .skip((pageNum - 1) * limitNum)
+                .limit(limitNum),
             User.countDocuments(query)
         ]);
 
@@ -1399,10 +1421,130 @@ router.get('/users/:id', auth, requireAdmin, async (req, res) => {
 });
 
 /**
+ * GET /admin/users/:id/profile
+ * Comprehensive profile data for admin detailed view
+ */
+router.get('/users/:id/profile', auth, requireAdmin, async (req, res) => {
+    try {
+        const user = await User.findById(req.params.id)
+            .select('walletAddress email role isBanned isFrozen isFlagged flagReason isActive activation referralCode referredBy realBalances practiceBalance createdAt lastLoginAt teamStats cashbackStats gamesPlayed gamesWon totalRewardsWon')
+            .populate('referredBy', 'walletAddress referralCode')
+            .lean();
+
+        if (!user) {
+            return res.status(404).json({ status: 'error', message: 'User not found' });
+        }
+
+        // 1. Financial Data Aggregation
+        const depositsTotal = user.activation?.totalDeposited || 0;
+        const withdrawalsTotal = (user.withdrawals || []).reduce((sum, w) => sum + (w.status === 'confirmed' ? w.amount : 0), 0);
+        
+        // 2. Network Stats (Directs count)
+        const directsCount = await User.countDocuments({ referredBy: user._id });
+        
+        // 3. Game Data (Aggregated from real games)
+        const gameStats = await Game.aggregate([
+            { $match: { user: user._id, gameType: 'real' } },
+            { $group: {
+                _id: null,
+                totalPlayed: { $sum: 1 },
+                totalWins: { $sum: { $cond: [{ $eq: ['$isWin', true] }, 1, 0] } },
+                total8xWins: { $sum: { $cond: [{ $and: [{ $eq: ['$isWin', true] }, { $eq: ['$multiplier', 8] }] }, 1, 0] } },
+                totalWagered: { $sum: '$betAmount' },
+                totalPayout: { $sum: '$payout' }
+            }}
+        ]);
+
+        // 4. Lucky Draw Data
+        const JackpotRound = require('../models/JackpotRound');
+        const luckyDrawHits = await JackpotRound.countDocuments({ 'winners.user': user._id });
+        const luckyDrawTickets = await Transaction.countDocuments({ userId: user._id, type: 'LUCKY_DRAW_TICKET' });
+
+        res.json({
+            status: 'success',
+            data: {
+                user,
+                financials: {
+                    totalDeposits: depositsTotal,
+                    totalWithdrawals: withdrawalsTotal,
+                    netProfit: (gameStats[0]?.totalPayout || 0) - (gameStats[0]?.totalWagered || 0),
+                    cashbackEarned: user.cashbackStats?.totalRecovered || 0,
+                    roiCapUsed: ((user.realBalances?.cashbackROI || 0) / (depositsTotal * 3 || 1) * 100).toFixed(2) + '%'
+                },
+                network: {
+                    directReferrals: directsCount,
+                    totalTeamSize: user.teamStats?.totalMembers || 0,
+                    activeUsers: user.teamStats?.activeMembers || 0,
+                    levelUnlock: user.clubRank || 'Rank 0'
+                },
+                games: {
+                    totalPlayed: gameStats[0]?.totalPlayed || 0,
+                    wins: gameStats[0]?.totalWins || 0,
+                    losses: (gameStats[0]?.totalPlayed || 0) - (gameStats[0]?.totalWins || 0),
+                    eightXWins: gameStats[0]?.total8xWins || 0
+                },
+                luckyDraw: {
+                    ticketsPurchased: luckyDrawTickets || 0,
+                    wins: luckyDrawHits
+                }
+            }
+        });
+    } catch (error) {
+        logger.error('Full profile fetch error:', error);
+        res.status(500).json({ status: 'error', message: 'Failed to fetch full profile' });
+    }
+});
+
+/**
+ * PATCH /admin/users/:id/flag
+ * Flag a user for suspicious activity
+ */
+router.patch('/users/:id/flag', auth, requireAdmin, async (req, res) => {
+    try {
+        const { reason } = req.body;
+        const user = await User.findById(req.params.id);
+        if (!user) return res.status(404).json({ status: 'error', message: 'User not found' });
+
+        user.isFlagged = true;
+        user.flagReason = reason || 'Manual flag by admin';
+        await user.save();
+
+        logAdminAction(req.user, 'flag_user', `Flagged user ${user.walletAddress}: ${user.flagReason}`, 'warning');
+
+        res.json({ status: 'success', message: 'User flagged successfully', data: { isFlagged: true } });
+    } catch (error) {
+        logger.error('Flag user error:', error);
+        res.status(500).json({ status: 'error', message: 'Failed to flag user' });
+    }
+});
+
+/**
+ * PATCH /admin/users/:id/unflag
+ * Remove suspicious flag from user
+ */
+router.patch('/users/:id/unflag', auth, requireAdmin, async (req, res) => {
+    try {
+        const user = await User.findById(req.params.id);
+        if (!user) return res.status(404).json({ status: 'error', message: 'User not found' });
+
+        user.isFlagged = false;
+        user.flagReason = null;
+        await user.save();
+
+        logAdminAction(req.user, 'unflag_user', `Unflagged user ${user.walletAddress}`, 'info');
+
+        res.json({ status: 'success', message: 'Flag removed successfully', data: { isFlagged: false } });
+    } catch (error) {
+        logger.error('Unflag user error:', error);
+        res.status(500).json({ status: 'error', message: 'Failed to unflag user' });
+    }
+});
+
+/**
  * PATCH /admin/users/:id/ban
  * Ban a user account
  */
-router.patch('/users/:id/ban', auth, requireAdmin, async (req, res) => {
+router.patch('/users/:id/ban', auth, requireSuperAdmin, async (req, res) => {
     try {
         const { reason } = req.body;
         const targetUser = await User.findById(req.params.id);
@@ -1452,7 +1594,7 @@ router.patch('/users/:id/ban', auth, requireAdmin, async (req, res) => {
  * PATCH /admin/users/:id/unban
  * Unban a user account
  */
-router.patch('/users/:id/unban', auth, requireAdmin, async (req, res) => {
+router.patch('/users/:id/unban', auth, requireSuperAdmin, async (req, res) => {
     try {
         const user = await User.findById(req.params.id);
 
@@ -1651,9 +1793,10 @@ router.get('/jackpot/dashboard', auth, requireAdmin, async (req, res) => {
 
         // Calculate auto-entry stats
         const autoEntryUsersCount = await User.countDocuments({ 'settings.autoLuckyDraw': true });
-        // Mocked real-world derivations for Auto Entry converted since it's not explicitly trackable as a sum field right now
-        // Let's assume an average based on user count if no exact ledger exists
-        const autoTicketsPurchased = Math.floor(autoEntryUsersCount * 0.5); // Mock derived stat for demonstration
+        let autoTicketsPurchased = 0;
+        if (activeRound && activeRound.tickets) {
+            autoTicketsPurchased = activeRound.tickets.filter(t => t.entrySource === 'auto').length;
+        }
 
         // Prepare distribution map (Standard TRK Structure)
         const prizeDistribution = [
@@ -1763,7 +1906,7 @@ router.post('/jackpot/draw', auth, requireRole('superadmin', 'tech_admin'), asyn
  * POST /admin/jackpot/toggle
  * Pause or resume jackpot
  */
-router.post('/jackpot/toggle', auth, requireAdmin, async (req, res) => {
+router.post('/jackpot/toggle', auth, requireSuperAdmin, async (req, res) => {
     try {
         await jackpotService.togglePause();
         res.json({ status: 'success', message: 'Jackpot status toggled' });
@@ -2092,14 +2235,12 @@ router.get('/contract/transactions', auth, requireAdmin, async (req, res) => {
             return `${days}d ago`;
         };
 
-        const explorerApiKey = process.env.ETHERSCAN_API_KEY || process.env.BSCSCAN_API_KEY;
+        const explorerApiKey = process.env.BSCSCAN_API_KEY;
         const chainId = Number(process.env.CHAIN_ID || 56);
-        const defaultExplorerBase = 'https://api.etherscan.io/v2/api';
-        const explorerBase = process.env.ETHERSCAN_API_URL || process.env.BSCSCAN_API_URL || defaultExplorerBase;
+        const explorerBase = chainId === 97 ? 'https://api-testnet.bscscan.com/api' : 'https://api.bscscan.com/api';
 
         if (explorerApiKey) {
             const params = new URLSearchParams({
-                chainid: String(chainId),
                 module: 'account',
                 action: mode,
                 address: contractAddress,
@@ -2118,136 +2259,223 @@ router.get('/contract/transactions', auth, requireAdmin, async (req, res) => {
                 }
             }
 
-            const response = await fetch(`${explorerBase}?${params.toString()}`);
-            if (!response.ok) {
-                throw new Error(`Explorer API request failed (${response.status})`);
-            }
-
-            const payload = await response.json();
-            const isNoTx = payload?.message && payload.message.toLowerCase().includes('no transactions');
-            if (payload?.status !== '1' && !isNoTx) {
-                throw new Error(payload?.result || payload?.message || 'Explorer API error');
-            }
-
-            const rows = Array.isArray(payload?.result) ? payload.result : [];
-            const transactions = rows.map((tx) => {
-                const decimals = mode === 'tokentx' ? Number(tx.tokenDecimal || 18) : 18;
-                const symbol = mode === 'tokentx' ? (tx.tokenSymbol || 'USDT') : 'BNB';
-                let amount = '0.00';
-                try {
-                    amount = Number(ethers.formatUnits(BigInt(tx.value || '0'), decimals)).toFixed(2);
-                } catch {
-                    amount = '0.00';
+            try {
+                const response = await fetch(`${explorerBase}?${params.toString()}`);
+                if (!response.ok) {
+                    throw new Error(`Explorer API request failed (${response.status})`);
                 }
 
-                const method =
-                    tx.functionName?.split('(')[0] ||
-                    (tx.methodId && tx.methodId !== '0x' ? tx.methodId : (mode === 'tokentx' ? 'Token Transfer' : 'Contract Tx'));
+                const payload = await response.json();
+                const isNoTx = payload?.message && payload.message.toLowerCase().includes('no transactions');
+                
+                if (payload?.status !== '1' && !isNoTx) {
+                    logger.warn(`[BSCScan] API issue or rate limit: ${payload?.result || payload?.message}. Falling through to RPC.`);
+                    // Fall through to RPC natively by catching this error
+                    throw new Error("BSCScan API returned non-1 status");
+                }
+                
+                const rows = Array.isArray(payload?.result) ? payload.result : [];
+                const transactions = rows.map((tx) => {
+                    const decimals = mode === 'tokentx' ? Number(tx.tokenDecimal || 18) : 18;
+                    const symbol = mode === 'tokentx' ? (tx.tokenSymbol || 'USDT') : 'BNB';
+                    let amount = '0.00';
+                    try {
+                        amount = Number(ethers.formatUnits(BigInt(tx.value || '0'), decimals)).toFixed(2);
+                    } catch {
+                        amount = '0.00';
+                    }
 
-                const status = tx.isError === '1' || tx.txreceipt_status === '0' ? 'Failed' : 'Confirmed';
+                    const method =
+                        tx.functionName?.split('(')[0] ||
+                        (tx.methodId && tx.methodId !== '0x' ? tx.methodId : (mode === 'tokentx' ? 'Token Transfer' : 'Contract Tx'));
 
-                return {
-                    hash: tx.hash,
-                    method,
-                    status,
-                    amount,
-                    symbol,
-                    time: timeAgo(tx.timeStamp || tx.timeStamp === 0 ? tx.timeStamp : 0),
-                    from: tx.from,
-                    to: tx.to
-                };
+                    const status = tx.isError === '1' || tx.txreceipt_status === '0' ? 'Failed' : 'Confirmed';
+
+                    return {
+                        hash: tx.hash,
+                        method,
+                        status,
+                        amount,
+                        symbol,
+                        time: timeAgo(tx.timeStamp || tx.timeStamp === 0 ? tx.timeStamp : 0),
+                        from: tx.from,
+                        to: tx.to
+                    };
+                });
+
+                return res.json({
+                    status: 'success',
+                    source: 'explorer',
+                    pagination: {
+                        page,
+                        offset,
+                        hasMore: rows.length === offset
+                    },
+                    data: transactions
+                });
+            } catch (err) {
+                // If anything fails with BSCScan (rate limit, fetch error), it falls out here and proceeds to RPC.
+                logger.warn(`[BSCScan] Falling back to RPC due to: ${err.message}`);
+            }
+        }
+
+        // 1. Check RPC Cache (30s TTL)
+        const CACHE_TTL = 30000;
+        if (ledgerRpcCache.data && (Date.now() - ledgerRpcCache.timestamp < CACHE_TTL)) {
+            return res.json({
+                status: 'success',
+                source: 'rpc-cache',
+                data: ledgerRpcCache.data
             });
+        }
+
+        // 2. RPC Fallback (Optimized to avoid rate limits with multi-RPC support)
+        const RPC_URLS = [
+            process.env.BSC_RPC_URL,
+            "https://bsc-rpc.publicnode.com",
+            "https://bscrpc.com",
+            "https://1rpc.io/bnb",
+            "https://bsc.meowrpc.com",
+            "https://bsc-dataseed1.defibit.io/"
+        ].filter(Boolean);
+
+        const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+        try {
+            let latestBlock;
+            let logs = [];
+            let provider;
+            let rpcSuccess = false;
+            let lastRpcError = null;
+
+            for (const url of RPC_URLS) {
+                try {
+                    provider = new ethers.JsonRpcProvider(url, undefined, { batchMaxCount: 1 });
+                    latestBlock = await provider.getBlockNumber();
+
+                    await sleep(500); // Small delay to prevent rate limiting between requests
+                    
+                    const normalizedAddress = ethers.getAddress(contractAddress.toLowerCase());
+                    try {
+                        // Limit range to last 20 blocks for maximum public node compatibility
+                        logs = await provider.getLogs({
+                            address: normalizedAddress,
+                            fromBlock: latestBlock - 20,
+                            toBlock: 'latest'
+                        });
+                    } catch (logError) {
+                        logger.warn(`[RPC Fallback] Initial log fetch failed on ${url}, retrying last 5 blocks...`);
+                        await sleep(1000);
+                        logs = await provider.getLogs({
+                            address: normalizedAddress,
+                            fromBlock: latestBlock - 5,
+                            toBlock: 'latest'
+                        });
+                    }
+                    
+                    rpcSuccess = true;
+                    break; // Exit loop on success
+                } catch (err) {
+                    lastRpcError = err;
+                    logger.warn(`[RPC Fallback] Failed to fetch from ${url}, trying next...`);
+                }
+            }
+
+            if (!rpcSuccess) {
+                throw lastRpcError || new Error("All RPC endpoints failed");
+            }
+
+            const recentLogs = logs.slice(-20).reverse();
+            const transactions = [];
+
+            // Execute details fetching sequentially or with minimal concurrency to avoid rate limits
+            for (const log of recentLogs) {
+                try {
+                    // Get block timestamp with caching
+                    let timestamp = 0;
+                    if (blockCache.has(log.blockNumber)) {
+                        timestamp = blockCache.get(log.blockNumber);
+                    } else {
+                        const block = await provider.getBlock(log.blockNumber);
+                        timestamp = block?.timestamp || 0;
+                        blockCache.set(log.blockNumber, timestamp);
+                        // Cleanup old cache entries
+                        if (blockCache.size > 200) blockCache.delete(blockCache.keys().next().value);
+                    }
+
+                    let method = 'Contract Interaction';
+                    let amount = "0.00";
+                    let from = log.topics[1] ? ethers.stripHexZeros(log.topics[1]) : 'Internal';
+                    let to = log.topics[2] ? ethers.stripHexZeros(log.topics[2]) : contractAddress;
+                    
+                    const abiCoder = ethers.AbiCoder.defaultAbiCoder();
+
+                    // Efficient Parsing from Log Topics/Data (Avoids getTransaction)
+                    const transferTopic = ethers.id("Transfer(address,address,uint256)");
+                    const betPlacedTopic = ethers.id("BetPlaced(address,uint256,uint256,uint256,bool)");
+                    const winClaimedTopic = ethers.id("WinClaimed(address,uint256,uint256)");
+
+                    if (log.topics[0] === betPlacedTopic) {
+                        method = 'PlaceBet';
+                        // if player is indexed, it's in topics[1]
+                        const decoded = abiCoder.decode(['uint256', 'uint256', 'uint256', 'bool'], log.data);
+                        amount = ethers.formatUnits(decoded[2], 18);
+                    } else if (log.topics[0] === transferTopic) {
+                        method = 'Transfer';
+                        const decoded = abiCoder.decode(['uint256'], log.data);
+                        amount = ethers.formatUnits(decoded[0], 18);
+                    } else if (log.topics[0] === winClaimedTopic) {
+                        method = 'WinClaimed';
+                        const decoded = abiCoder.decode(['uint256', 'uint256'], log.data);
+                        amount = ethers.formatUnits(decoded[0], 18);
+                    }
+
+                    transactions.push({
+                        hash: log.transactionHash,
+                        method,
+                        status: 'Confirmed', // RPC logs are confirmed
+                        amount: Number(amount).toFixed(2),
+                        symbol: 'USDT',
+                        time: timeAgo(timestamp),
+                        from: from.toLowerCase(),
+                        to: to.toLowerCase()
+                    });
+                } catch (parseError) {
+                    logger.warn(`[RPC Fallback] Failed to parse log ${log.transactionHash}:`, parseError.message);
+                }
+            }
+
+            // Update Cache
+            ledgerRpcCache = {
+                data: transactions,
+                timestamp: Date.now()
+            };
 
             return res.json({
                 status: 'success',
-                source: 'explorer',
-                pagination: {
-                    page,
-                    offset,
-                    hasMore: rows.length === offset
-                },
+                source: 'rpc',
                 data: transactions
             });
-        }
 
-        // Fallback to RPC (limited recent logs)
-        const rpcUrl = process.env.BSC_RPC_URL || "https://bsc-dataseed.binance.org/";
-        const provider = new ethers.JsonRpcProvider(rpcUrl);
-        const latestBlock = await provider.getBlockNumber();
-        let logs = [];
-
-        try {
-            logs = await provider.getLogs({
-                address: contractAddress,
-                fromBlock: latestBlock - 50,
-                toBlock: 'latest'
-            });
-        } catch (logError) {
-            console.warn('Initial RPC log fetch failed (range may be too large), trying last 10 blocks...', logError.message);
-            logs = await provider.getLogs({
-                address: contractAddress,
-                fromBlock: latestBlock - 10,
-                toBlock: 'latest'
-            });
-        }
-
-        const recentLogs = logs.slice(-20).reverse();
-        const transactions = await Promise.all(recentLogs.map(async (log) => {
-            const block = await provider.getBlock(log.blockNumber);
-            let method = 'Contract Interaction';
-            let amount = "Checking...";
-            const abiCoder = ethers.AbiCoder.defaultAbiCoder();
-
-            try {
-                if (log.topics[0] === ethers.id("BetPlaced(address,uint256,uint256,uint256,bool)")) {
-                    method = 'PlaceBet';
-                    const decoded = abiCoder.decode(['uint256', 'uint256', 'bool'], log.data);
-                    amount = ethers.formatUnits(decoded[0], 18);
-                } else if (log.topics[0] === ethers.id("Transfer(address,address,uint256)")) {
-                    method = 'Transfer';
-                    const decoded = abiCoder.decode(['uint256'], log.data);
-                    amount = ethers.formatUnits(decoded[0], 18);
-                } else if (log.topics[0] === ethers.id("WinClaimed(address,uint256,uint256)")) {
-                    method = 'WinClaimed';
-                    const decoded = abiCoder.decode(['uint256', 'uint256'], log.data);
-                    amount = ethers.formatUnits(decoded[0], 18);
-                }
-            } catch (parseError) {
-                console.warn('Failed to parse log data:', parseError.message);
+        } catch (rpcError) {
+            logger.error('[RPC Fallback] Critical failure:', rpcError.message);
+            
+            // If we have any cached data at all (even expired), return it as last resort
+            if (ledgerRpcCache.data) {
+                return res.json({
+                    status: 'success',
+                    source: 'rpc-stale',
+                    note: 'Returning stale cache due to RPC error',
+                    data: ledgerRpcCache.data
+                });
             }
 
-            let from = '';
-            let to = '';
-            try {
-                const txDetails = await provider.getTransaction(log.transactionHash);
-                if (txDetails) {
-                    from = txDetails.from;
-                    to = txDetails.to;
-                }
-            } catch (err) { }
-
-            return {
-                hash: log.transactionHash,
-                method,
-                status: 'Confirmed',
-                amount: amount === "Checking..." ? "-" : parseFloat(amount).toFixed(2),
-                symbol: 'USDT',
-                time: block ? timeAgo(block.timestamp) : 'Recent',
-                from,
-                to
-            };
-        }));
-
-        return res.json({
-            status: 'success',
-            source: 'rpc',
-            pagination: {
-                page: 1,
-                offset: transactions.length,
-                hasMore: false
-            },
-            data: transactions
-        });
+            res.status(502).json({
+                status: 'error',
+                message: 'Blockchain node busy or unreachable. Please try again.',
+                details: rpcError.message
+            });
+        }
     } catch (error) {
         console.error('Contract Transaction Fetch Error:', error);
         res.status(500).json({
@@ -2276,7 +2504,8 @@ router.get('/financials/dashboard', auth, requireAdmin, async (req, res) => {
         const [
             totalTurnover,
             poolBalances,
-            revenueStats
+            revenueStats,
+            recentGames
         ] = await Promise.all([
             // Total Turnover (All real game bets)
             Game.aggregate([
@@ -2305,12 +2534,25 @@ router.get('/financials/dashboard', auth, requireAdmin, async (req, res) => {
                         totalPaid: { $sum: { $cond: ['$isWin', '$payout', 0] } }
                     }
                 }
-            ])
+            ]),
+            // Recent Financial Activity to prepopulate streams
+            Game.find({ isPractice: false })
+                .sort({ createdAt: -1 })
+                .limit(15)
+                .populate('user', 'walletAddress email')
         ]);
 
         const turnover = totalTurnover[0]?.total || 0;
         const pools = poolBalances[0] || { clubPool: 0, directLevel: 0, cashback: 0, jackpot: 0 };
         const revenue = revenueStats[0] ? (revenueStats[0].totalWagered - revenueStats[0].totalPaid) : 0;
+        
+        const recentActivity = recentGames.map(g => ({
+            type: g.isWin ? 'PAYOUT' : 'BET_WAGER',
+            amount: g.isWin ? g.payout : g.betAmount,
+            user: g.user?.walletAddress || g.user?.email || 'Unknown',
+            time: g.createdAt,
+            status: 'COMPLETED'
+        }));
 
         res.json({
             status: 'success',
@@ -2319,7 +2561,8 @@ router.get('/financials/dashboard', auth, requireAdmin, async (req, res) => {
                 pools,
                 revenue,
                 sustainabilityScore: turnover > 0 ? ((revenue / turnover) * 100).toFixed(2) : 100,
-                timeframe
+                timeframe,
+                recentActivity
             }
         });
     } catch (error) {
@@ -2327,6 +2570,68 @@ router.get('/financials/dashboard', auth, requireAdmin, async (req, res) => {
         res.status(500).json({ status: 'error', message: 'Failed to fetch financial data' });
     }
 });
+
+/**
+/**
+ * GET /admin/financials/bscscan-history
+ * Fetch live USDT transaction history from BscScan for admin wallets
+ */
+router.get('/financials/bscscan-history', auth, requireAdmin, async (req, res) => {
+    try {
+        const axios = require('axios');
+        const apiKey = process.env.BSCSCAN_API_KEY;
+        const contractAddress = process.env.USDT_CONTRACT_ADDRESS || '0x55d398326f99059fF775485246999027B3197955';
+        const chainId = parseInt(process.env.CHAIN_ID || '56');
+
+        // Resolve the primary wallet to monitor
+        let monitorWallet = null;
+        const bdWalletsEnv = process.env.BD_WALLETS;
+        if (bdWalletsEnv) {
+            try {
+                const wallets = JSON.parse(bdWalletsEnv);
+                const treasury = wallets.find(w => w.type === 'TREASURY') || wallets[0];
+                if (treasury) monitorWallet = treasury.address;
+            } catch (_) {}
+        }
+        if (!monitorWallet) {
+            const adminWallets = (process.env.ADMIN_WALLETS || '').split(',').map(w => w.trim()).filter(Boolean);
+            monitorWallet = adminWallets[0];
+        }
+
+        if (!monitorWallet) {
+            return res.json({ status: 'success', data: [], message: 'No wallet configured' });
+        }
+
+        const explorerBase = chainId === 97
+            ? 'https://api-testnet.bscscan.com/api'
+            : 'https://api.bscscan.com/api';
+
+        // CRITICAL: BSCScan requires `address` param for tokentx — without it returns error
+        const url = `${explorerBase}?module=account&action=tokentx&contractaddress=${contractAddress}&address=${monitorWallet}&page=1&offset=50&startblock=0&endblock=999999999&sort=desc&apikey=${apiKey}`;
+
+        const response = await axios.get(url, { timeout: 10000 });
+
+        if (response.data.status === '1') {
+            res.json({
+                status: 'success',
+                data: response.data.result,
+                wallet: monitorWallet
+            });
+        } else {
+            // BSCScan returns status '0' for no txs (not always an error) — return empty array gracefully
+            logger.warn('BscScan advisory:', response.data.message, 'for wallet:', monitorWallet);
+            res.json({
+                status: 'success',
+                data: [],
+                message: response.data.message || 'No transactions found'
+            });
+        }
+    } catch (error) {
+        logger.error('BscScan history error:', error.message);
+        res.json({ status: 'success', data: [], message: 'BscScan temporarily unavailable' });
+    }
+});
+
 
 /**
  * GET /admin/db/stats
@@ -2672,236 +2977,191 @@ router.get('/network/tree/:id', auth, requireAdmin, async (req, res) => {
 
 /**
  * GET /admin/transactions
- * Unified read-only view of all financial activity
+ * Unified master ledger - queries the Transaction collection first,
+ * falls back to legacy multi-source stitching if it's empty.
  */
 router.get('/transactions', auth, requireAdmin, async (req, res) => {
     try {
-        const { type, page = 1, limit = 50, startDate, endDate, walletAddress, dateRange } = req.query;
+        const Transaction = require('../models/Transaction');
+        const { type, page = 1, limit = 50, q, search, walletAddress, dateRange, startDate, endDate } = req.query;
+        const searchTerm = q || search || walletAddress || '';
+        const pageNum = parseInt(page);
+        const limitNum = parseInt(limit);
 
-        // Build date filter
-        const dateFilter = {};
-        if (startDate) dateFilter.$gte = new Date(startDate);
-        if (endDate) dateFilter.$lte = new Date(endDate);
+        // --- Build query filter ---
+        const filter = {};
 
-        // Support frontend dateRange filter: Today | 7d | 30d | All
-        if (!startDate && dateRange && dateRange !== 'All') {
-            const now = new Date();
-            if (dateRange === 'Today') {
-                const todayStart = new Date(now);
-                todayStart.setHours(0, 0, 0, 0);
-                dateFilter.$gte = todayStart;
-            } else if (dateRange === '7d') {
-                dateFilter.$gte = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-            } else if (dateRange === '30d') {
-                dateFilter.$gte = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-            }
+        if (type && type !== 'All') {
+            filter.type = type.toUpperCase();
         }
 
-        const hasDateFilter = Object.keys(dateFilter).length > 0;
-        const transactions = [];
+        // Date range
+        if (startDate || endDate || dateRange) {
+            const dateFilter = {};
+            if (startDate) dateFilter.$gte = new Date(startDate);
+            if (endDate) dateFilter.$lte = new Date(endDate);
+            if (!startDate && dateRange && dateRange !== 'All') {
+                const now = new Date();
+                if (dateRange === 'Today') {
+                    const s = new Date(now); s.setHours(0, 0, 0, 0);
+                    dateFilter.$gte = s;
+                } else if (dateRange === '7d') {
+                    dateFilter.$gte = new Date(now - 7 * 864e5);
+                } else if (dateRange === '30d') {
+                    dateFilter.$gte = new Date(now - 30 * 864e5);
+                }
+            }
+            if (Object.keys(dateFilter).length > 0) filter.createdAt = dateFilter;
+        }
 
-        // ---- 1) DEPOSITS ----
-        // Try deposits[] subdocuments first, then fall back to activation data
-        if (!type || type === 'deposit') {
-            const userQuery = {};
-            if (walletAddress) userQuery.walletAddress = { $regex: walletAddress, $options: 'i' };
+        // Wallet / text search
+        if (searchTerm) {
+            filter.$or = [
+                { walletAddress: { $regex: searchTerm, $options: 'i' } },
+                { txHash: { $regex: searchTerm, $options: 'i' } },
+                { source: { $regex: searchTerm, $options: 'i' } }
+            ];
+        }
 
-            // First try: deposits[] subdocument array
-            const usersWithSubDeps = await User.find({ ...userQuery, 'deposits.0': { $exists: true } })
-                .select('walletAddress email deposits')
+        // Check if Transaction collection has data
+        const hasNewData = await Transaction.countDocuments({}) > 0;
+
+        if (hasNewData) {
+            // --- PRIMARY: Use new Transaction model ---
+            const total = await Transaction.countDocuments(filter);
+            const txs = await Transaction.find(filter)
+                .sort({ createdAt: -1 })
+                .skip((pageNum - 1) * limitNum)
+                .limit(limitNum)
+                .populate('userId', 'walletAddress email')
                 .lean();
 
-            if (usersWithSubDeps.length > 0) {
-                for (const user of usersWithSubDeps) {
-                    for (const dep of (user.deposits || [])) {
-                        const depDate = new Date(dep.createdAt || dep.timestamp || 0);
-                        if (hasDateFilter && dateFilter.$gte && depDate < dateFilter.$gte) continue;
-                        if (hasDateFilter && dateFilter.$lte && depDate > dateFilter.$lte) continue;
-                        transactions.push({
-                            id: String(dep._id || dep.txHash || Math.random().toString(36)),
-                            type: 'DEPOSIT',
-                            user: {
-                                walletAddress: user.walletAddress || '',
-                                email: user.email || ''
-                            },
-                            amount: dep.amount || 0,
-                            txHash: dep.txHash || null,
-                            status: 'COMPLETED',
-                            timestamp: depDate,
-                            note: ''
-                        });
-                    }
+            // Analytics summary
+            const [analytics] = await Transaction.aggregate([
+                { $match: filter },
+                { $group: {
+                    _id: null,
+                    totalInflow: { $sum: { $cond: [{ $in: ['$type', ['DEPOSIT', 'CASHBACK', 'ROI_ON_ROI', 'REFERRAL', 'GAME_WIN', 'LUCKY_DRAW_REWARD']] }, '$amount', 0] } },
+                    totalOutflow: { $sum: { $cond: [{ $eq: ['$type', 'WITHDRAWAL'] }, '$amount', 0] } },
+                    totalFees: { $sum: '$fee' },
+                    count: { $sum: 1 }
+                }}
+            ]).exec() || [{}];
+
+            return res.json({
+                status: 'success',
+                data: {
+                    transactions: txs.map(tx => ({
+                        id: String(tx._id),
+                        userId: tx.userId?._id || tx.userId,
+                        type: tx.type,
+                        walletAddress: tx.userId?.walletAddress || tx.walletAddress,
+                        amount: tx.amount,
+                        fee: tx.fee,
+                        netAmount: tx.netAmount,
+                        status: tx.status,
+                        txHash: tx.txHash,
+                        source: tx.source,
+                        createdAt: tx.createdAt,
+                    })),
+                    total,
+                    totalPages: Math.ceil(total / limitNum),
+                    currentPage: pageNum,
+                    summary: {
+                        inflow: analytics?.totalInflow || 0,
+                        outflow: analytics?.totalOutflow || 0,
+                        fees: analytics?.totalFees || 0,
+                        count: analytics?.count || 0
+                    },
+                    source: 'ledger_v2'
                 }
-            } else {
-                // Fallback logic for activation deposits removed to show only real-time deposits.
+            });
+        }
+
+        // --- LEGACY FALLBACK: stitch from multiple old collections ---
+        const transactions = [];
+        const hasDateFilter = !!filter.createdAt;
+        const dateFilter = filter.createdAt || {};
+
+        // A) Deposits from User subdocuments
+        if (!type || type === 'DEPOSIT') {
+            const userQuery = searchTerm ? { walletAddress: { $regex: searchTerm, $options: 'i' } } : {};
+            const usersWithDeps = await User.find({ ...userQuery, 'deposits.0': { $exists: true } })
+                .select('walletAddress email deposits').lean();
+            for (const user of usersWithDeps) {
+                for (const dep of (user.deposits || [])) {
+                    const d = new Date(dep.createdAt || dep.timestamp || 0);
+                    if (hasDateFilter && dateFilter.$gte && d < dateFilter.$gte) continue;
+                    if (hasDateFilter && dateFilter.$lte && d > dateFilter.$lte) continue;
+                    transactions.push({
+                        id: String(dep._id || dep.txHash),
+                        type: 'DEPOSIT', walletAddress: user.walletAddress,
+                        amount: dep.amount || 0, fee: 0, netAmount: dep.amount || 0,
+                        txHash: dep.txHash || null, status: 'COMPLETED', createdAt: d, source: 'deposit'
+                    });
+                }
             }
         }
 
-        // ---- 2) REFERRAL & CASHBACK COMMISSIONS ----
-        if (!type || type === 'referral' || type === 'cashback') {
+        // B) Commissions / Referrals / Cashback
+        if (!type || ['REFERRAL', 'CASHBACK'].includes(type)) {
             try {
                 const Commission = require('../models/Commission');
-                const commQuery = hasDateFilter ? { createdAt: dateFilter } : {};
-                const commissions = await Commission.find(commQuery)
-                    .populate('user', 'walletAddress email')
-                    .populate('fromUser', 'walletAddress email')
-                    .sort({ createdAt: -1 })
-                    .limit(500)
-                    .lean();
-
-                // Resolve any unresolved user references
-                const unresolvedIds = new Set();
-                for (const c of commissions) {
-                    if (c.user && !c.user.walletAddress && typeof c.user !== 'string') {
-                        const id = c.user._id ? c.user._id.toString() : (typeof c.user === 'object' ? '' : String(c.user));
-                        if (id) unresolvedIds.add(id);
-                    }
-                    if (c.fromUser && !c.fromUser.walletAddress && typeof c.fromUser !== 'string') {
-                        const id = c.fromUser._id ? c.fromUser._id.toString() : '';
-                        if (id) unresolvedIds.add(id);
-                    }
-                }
-                const walletMap = new Map();
-                if (unresolvedIds.size > 0) {
-                    const resolved = await User.find({ _id: { $in: Array.from(unresolvedIds) } })
-                        .select('walletAddress email').lean();
-                    for (const u of resolved) walletMap.set(u._id.toString(), u.walletAddress || u.email || '');
-                }
-
-                for (const c of commissions) {
-                    // Determine type: cashback vs referral
-                    const commType = (c.type || '').toLowerCase();
-                    const isCashback = commType.includes('cashback') || commType.includes('roi');
-                    const txType = isCashback ? 'cashback' : 'referral';
-
-                    // Skip if filtering by specific type and this doesn't match
+                const comms = await Commission.find(hasDateFilter ? { createdAt: dateFilter } : {})
+                    .populate('user', 'walletAddress').sort({ createdAt: -1 }).limit(300).lean();
+                for (const c of comms) {
+                    const wall = c.user?.walletAddress || c.recipientWallet || 'Unknown';
+                    if (searchTerm && !wall.toLowerCase().includes(searchTerm.toLowerCase())) continue;
+                    if (wall === 'Unknown') continue;
+                    const t = (c.type || '').toLowerCase();
+                    const txType = t.includes('cashback') || t.includes('roi') ? 'CASHBACK' : 'REFERRAL';
                     if (type && type !== txType) continue;
-
-                    const recipientWallet = c.user?.walletAddress || c.user?.email ||
-                        c.recipientWallet ||
-                        (c.user?._id ? walletMap.get(c.user._id.toString()) : '') || 'Unknown';
-                    const sourceWallet = c.fromUser?.walletAddress || c.fromUser?.email ||
-                        c.sourceWallet ||
-                        (c.fromUser?._id ? walletMap.get(c.fromUser._id.toString()) : '') || 'Unknown';
-
-                    if (recipientWallet === 'Unknown') continue;
-
                     transactions.push({
-                        id: String(c._id),
-                        type: txType.toUpperCase(),
-                        user: {
-                            walletAddress: recipientWallet,
-                            email: c.user?.email || ''
-                        },
-                        amount: c.amount || 0,
-                        txHash: null,
-                        status: c.status === 'failed' ? 'FAILED' : 'COMPLETED',
-                        timestamp: new Date(c.createdAt),
-                        note: sourceWallet !== 'Unknown'
-                            ? `${c.type || 'commission'} L${c.level || 0} from ${sourceWallet}`
-                            : (c.type || 'commission')
+                        id: String(c._id), type: txType, walletAddress: wall,
+                        amount: c.amount || 0, fee: 0, netAmount: c.amount || 0,
+                        txHash: null, status: c.status === 'failed' ? 'FAILED' : 'COMPLETED',
+                        createdAt: new Date(c.createdAt), source: c.type || 'commission'
                     });
                 }
-            } catch (e) { /* Commission model may not exist */ }
+            } catch (e) {}
         }
 
-        // ---- 3) LUCKY DRAW WINNERS ----
-        if (!type || type === 'lucky_draw') {
-            try {
-                const JackpotRound = require('../models/JackpotRound');
-                const jkQuery = { status: 'completed', winner: { $exists: true } };
-                if (hasDateFilter) jkQuery.completedAt = dateFilter;
-                const rounds = await JackpotRound.find(jkQuery)
-                    .populate('winner', 'walletAddress email').limit(100).lean();
-
-                for (const r of rounds) {
-                    if (!r.winner) continue;
+        // C) Withdrawals from User.withdrawals
+        if (!type || type === 'WITHDRAWAL') {
+            const userQuery = searchTerm ? { walletAddress: { $regex: searchTerm, $options: 'i' } } : {};
+            const usersWithW = await User.find({ ...userQuery, 'withdrawals.0': { $exists: true } })
+                .select('walletAddress withdrawals').lean();
+            for (const user of usersWithW) {
+                for (const w of (user.withdrawals || [])) {
+                    const d = new Date(w.createdAt || 0);
+                    if (hasDateFilter && dateFilter.$gte && d < dateFilter.$gte) continue;
                     transactions.push({
-                        id: String(r._id),
-                        type: 'LUCKY_DRAW',
-                        user: {
-                            walletAddress: r.winner?.walletAddress || '',
-                            email: r.winner?.email || ''
-                        },
-                        amount: r.prizeAmount || r.jackpotAmount || 0,
-                        txHash: r.txHash || null,
-                        status: 'COMPLETED',
-                        timestamp: new Date(r.completedAt || r.updatedAt || 0),
-                        note: `Lucky Draw Round #${r.roundNumber || r._id}`
+                        id: String(w._id), type: 'WITHDRAWAL', walletAddress: user.walletAddress,
+                        amount: w.amount || 0, fee: (w.amount || 0) * 0.1, netAmount: (w.amount || 0) * 0.9,
+                        txHash: w.txHash || null, status: w.status || 'COMPLETED', createdAt: d, source: 'withdrawal'
                     });
                 }
-            } catch (e) { /* JackpotRound model may not exist */ }
+            }
         }
 
-        // ---- 4) WITHDRAWALS (from AuditLog if available) ----
-        if (!type || type === 'withdrawal') {
-            try {
-                const AuditLog = require('../models/AuditLog');
-                const auditQuery = { eventType: 'withdrawal' };
-                if (hasDateFilter) auditQuery.createdAt = dateFilter;
-                const withdrawals = await AuditLog.find(auditQuery)
-                    .populate('userId', 'walletAddress email')
-                    .sort({ createdAt: -1 }).limit(200).lean();
+        transactions.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+        const total = transactions.length;
+        const paginated = transactions.slice((pageNum - 1) * limitNum, pageNum * limitNum);
 
-                for (const w of withdrawals) {
-                    transactions.push({
-                        id: String(w._id),
-                        type: 'WITHDRAWAL',
-                        user: {
-                            walletAddress: w.userId?.walletAddress || w.walletAddress || '',
-                            email: w.userId?.email || ''
-                        },
-                        amount: w.details?.amount || w.betAmount || 0,
-                        txHash: w.details?.txHash || null,
-                        status: 'COMPLETED',
-                        timestamp: new Date(w.createdAt),
-                        note: w.action || 'withdrawal'
-                    });
-                }
-            } catch (e) { /* AuditLog may not have withdrawal entries */ }
-        }
-
-        // Apply wallet filter across all transactions
-        let filteredTransactions = transactions;
-        if (walletAddress) {
-            const wq = walletAddress.toLowerCase();
-            filteredTransactions = transactions.filter(tx =>
-                (tx.walletAddress || '').toLowerCase().includes(wq)
-            );
-        }
-
-        // Sort by timestamp descending
-        filteredTransactions.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-
-        // Aggregate summary for dashboard cards
-        const summary = { deposits: 0, withdrawals: 0, referrals: 0, cashbacks: 0, total: 0 };
-        for (const tx of filteredTransactions) {
-            const amount = Number(tx.amount || 0);
-            if (tx.type === 'deposit') summary.deposits += amount;
-            if (tx.type === 'withdrawal') summary.withdrawals += amount;
-            if (tx.type === 'referral') summary.referrals += amount;
-            if (tx.type === 'cashback') summary.cashbacks += amount;
-            if (tx.type === 'lucky_draw') summary.total += amount;
-            summary.total += amount;
-        }
-        // Fix double-counting: total already accumulates lucky_draw separately
-        summary.total = summary.deposits + summary.withdrawals + summary.referrals + summary.cashbacks +
-            filteredTransactions.filter(t => t.type === 'lucky_draw').reduce((s, t) => s + (t.amount || 0), 0);
-
-        // Paginate
-        const total = filteredTransactions.length;
-        const start = (parseInt(page) - 1) * parseInt(limit);
-        const paginated = filteredTransactions.slice(start, start + parseInt(limit));
-
-        res.json({
+        return res.json({
             status: 'success',
             data: {
                 transactions: paginated,
                 total,
-                totalPages: Math.ceil(total / parseInt(limit)),
-                currentPage: parseInt(page),
-                summary,
-                readOnly: true
+                totalPages: Math.ceil(total / limitNum),
+                currentPage: pageNum,
+                summary: {
+                    inflow: transactions.filter(t => ['DEPOSIT', 'CASHBACK', 'REFERRAL'].includes(t.type)).reduce((s, t) => s + t.amount, 0),
+                    outflow: transactions.filter(t => t.type === 'WITHDRAWAL').reduce((s, t) => s + t.amount, 0),
+                    fees: transactions.reduce((s, t) => s + (t.fee || 0), 0),
+                    count: total
+                },
+                source: 'ledger_v1_legacy'
             }
         });
     } catch (error) {
@@ -2909,6 +3169,56 @@ router.get('/transactions', auth, requireAdmin, async (req, res) => {
         res.status(500).json({ status: 'error', message: 'Failed to fetch transactions' });
     }
 });
+
+/**
+ * GET /admin/transactions/analytics
+ * High-level financial flow dashboard cards
+ */
+router.get('/transactions/analytics', auth, requireAdmin, async (req, res) => {
+    try {
+        const Transaction = require('../models/Transaction');
+        const today = new Date(); today.setHours(0, 0, 0, 0);
+
+        const [allTime, todayStats, typeBreakdown] = await Promise.all([
+            Transaction.aggregate([{ $group: { _id: null, totalInflow: { $sum: { $cond: [{ $in: ['$type', ['DEPOSIT', 'CASHBACK', 'ROI_ON_ROI', 'REFERRAL', 'GAME_WIN', 'LUCKY_DRAW_REWARD', 'COMMISSION']] }, '$amount', 0] } }, totalOutflow: { $sum: { $cond: [{ $eq: ['$type', 'WITHDRAWAL'] }, '$amount', 0] } }, total: { $sum: '$amount' }, count: { $sum: 1 } } }]),
+            Transaction.aggregate([{ $match: { createdAt: { $gte: today } } }, { $group: { _id: null, inflow: { $sum: { $cond: [{ $in: ['$type', ['DEPOSIT', 'CASHBACK', 'ROI_ON_ROI', 'REFERRAL', 'GAME_WIN', 'LUCKY_DRAW_REWARD']] }, '$amount', 0] } }, outflow: { $sum: { $cond: [{ $eq: ['$type', 'WITHDRAWAL'] }, '$amount', 0] } }, count: { $sum: 1 } } }]),
+            Transaction.aggregate([{ $group: { _id: '$type', total: { $sum: '$amount' }, count: { $sum: 1 } } }, { $sort: { total: -1 } }])
+        ]);
+
+        const a = allTime[0] || {};
+        const t = todayStats[0] || {};
+        const netBalance = (a.totalInflow || 0) - (a.totalOutflow || 0);
+
+        res.json({
+            status: 'success',
+            data: {
+                allTime: { inflow: a.totalInflow || 0, outflow: a.totalOutflow || 0, netBalance, count: a.count || 0 },
+                today: { inflow: t.inflow || 0, outflow: t.outflow || 0, count: t.count || 0 },
+                byType: typeBreakdown,
+                systemHealth: netBalance > 0 ? 'HEALTHY' : 'WARNING'
+            }
+        });
+    } catch (error) {
+        logger.error('Transaction analytics error:', error);
+        res.status(500).json({ status: 'error', message: 'Failed to fetch analytics' });
+    }
+});
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -3089,6 +3399,22 @@ router.get('/practice/dashboard', auth, requireAdmin, async (req, res) => {
         const maxUsers = config?.practice?.maxUsers || 100000;
         const expiryDays = config?.practice?.expiryDays || 30;
 
+        const PracticeCommission = require('../models/PracticeCommission');
+        const mlmLogs = await PracticeCommission.aggregate([
+            {
+                $group: {
+                    _id: null,
+                    lvl1: { $sum: { $cond: [{ $eq: ["$level", 1] }, "$amount", 0] } },
+                    lvl2_5: { $sum: { $cond: [{ $and: [{ $gte: ["$level", 2] }, { $lte: ["$level", 5] }] }, "$amount", 0] } },
+                    lvl6_10: { $sum: { $cond: [{ $and: [{ $gte: ["$level", 6] }, { $lte: ["$level", 10] }] }, "$amount", 0] } },
+                    lvl11_15: { $sum: { $cond: [{ $and: [{ $gte: ["$level", 11] }, { $lte: ["$level", 15] }] }, "$amount", 0] } },
+                    total: { $sum: "$amount" }
+                }
+            }
+        ]);
+
+        const mlmActualFlow = mlmLogs[0] || { lvl1: 0, lvl2_5: 0, lvl6_10: 0, lvl11_15: 0, total: 0 };
+
         res.json({
             status: 'success',
             data: {
@@ -3097,7 +3423,7 @@ router.get('/practice/dashboard', auth, requireAdmin, async (req, res) => {
                     activePracticeUsers,
                     expiredAccounts: expiredPracticeUsers,
                     practiceBalanceIssued,
-                    burnedPracticePoints: gameStats.totalBurned
+                    burnedPracticePoints: (gameStats.totalBurned || 0)
                 },
                 bonusControl: {
                     bonusAmount,
@@ -3114,7 +3440,8 @@ router.get('/practice/dashboard', auth, requireAdmin, async (req, res) => {
                     eligibleForConversion,
                     convertedToRealCount,
                     conversionRate: totalPracticeUsers > 0 ? ((convertedToRealCount / totalPracticeUsers) * 100).toFixed(2) : 0
-                }
+                },
+                mlmActualFlow
             }
         });
     } catch (error) {
@@ -4324,7 +4651,7 @@ router.get('/economics/logs', auth, requireAdmin, async (req, res) => {
  * POST /admin/economics/pause
  * Multi-sig pause for an economics node
  */
-router.post('/economics/pause', auth, requireAdmin, async (req, res) => {
+router.post('/economics/pause', auth, requireSuperAdmin, async (req, res) => {
     try {
         const { nodes, reason } = req.body;
         if (!nodes || !Array.isArray(nodes)) return res.status(400).json({ status: 'error', message: 'Node selection required' });
@@ -4339,11 +4666,13 @@ router.post('/economics/pause', auth, requireAdmin, async (req, res) => {
                     protocol.status = 'PAUSED'; protocol.changedBy = adminId;
                     protocol.reason = protocol.pendingAction.reason; protocol.lastChangedAt = new Date();
                     protocol.pendingAction = null;
-                    await EconomyLog.create({ adminId, role: req.user.role, action: 'PAUSE_ACTIVATED', affectedNodes: [nodeName], reason, ipAddress: req.ip });
+                    const log = await EconomyLog.create({ adminId, role: req.user.role, action: 'PAUSE_ACTIVATED', affectedNodes: [nodeName], reason, ipAddress: req.ip });
+                    req.app.get('io')?.emit('admin:economy_log', log);
                 }
             } else {
                 protocol.pendingAction = { action: 'PAUSE', requestedBy: adminId, requestedAt: new Date(), approvals: [{ adminId, approvedAt: new Date() }], requiredApprovals: 2, reason };
-                await EconomyLog.create({ adminId, role: req.user.role, action: 'PAUSE_REQUESTED', affectedNodes: [nodeName], reason, ipAddress: req.ip });
+                const log = await EconomyLog.create({ adminId, role: req.user.role, action: 'PAUSE_REQUESTED', affectedNodes: [nodeName], reason, ipAddress: req.ip });
+                req.app.get('io')?.emit('admin:economy_log', log);
             }
             protocol.markModified('pendingAction');
             await protocol.save();
@@ -4358,7 +4687,7 @@ router.post('/economics/pause', auth, requireAdmin, async (req, res) => {
  * POST /admin/economics/resume
  * Multi-sig resume for an economics node
  */
-router.post('/economics/resume', auth, requireAdmin, async (req, res) => {
+router.post('/economics/resume', auth, requireSuperAdmin, async (req, res) => {
     try {
         const { nodes, reason } = req.body;
         if (!nodes || !Array.isArray(nodes)) return res.status(400).json({ status: 'error', message: 'Node selection required' });
@@ -4373,11 +4702,13 @@ router.post('/economics/resume', auth, requireAdmin, async (req, res) => {
                     protocol.status = 'RUNNING'; protocol.changedBy = adminId;
                     protocol.reason = protocol.pendingAction.reason; protocol.lastChangedAt = new Date();
                     protocol.pendingAction = null;
-                    await EconomyLog.create({ adminId, role: req.user.role, action: 'RESUME_ACTIVATED', affectedNodes: [nodeName], reason, ipAddress: req.ip });
+                    const log = await EconomyLog.create({ adminId, role: req.user.role, action: 'RESUME_ACTIVATED', affectedNodes: [nodeName], reason, ipAddress: req.ip });
+                    req.app.get('io')?.emit('admin:economy_log', log);
                 }
             } else {
                 protocol.pendingAction = { action: 'RESUME', requestedBy: adminId, requestedAt: new Date(), approvals: [{ adminId, approvedAt: new Date() }], requiredApprovals: 2, reason };
-                await EconomyLog.create({ adminId, role: req.user.role, action: 'RESUME_REQUESTED', affectedNodes: [nodeName], reason, ipAddress: req.ip });
+                const log = await EconomyLog.create({ adminId, role: req.user.role, action: 'RESUME_REQUESTED', affectedNodes: [nodeName], reason, ipAddress: req.ip });
+                req.app.get('io')?.emit('admin:economy_log', log);
             }
             protocol.markModified('pendingAction');
             await protocol.save();
@@ -4682,7 +5013,7 @@ router.get('/config', auth, requireAdmin, async (req, res) => {
  * PUT /admin/config
  * Update system configuration
  */
-router.put('/config', auth, requireAdmin, async (req, res) => {
+router.put('/config', auth, requireSuperAdmin, async (req, res) => {
     try {
         const updates = req.body;
         const config = await SystemConfig.findOneAndUpdate(
@@ -4697,4 +5028,227 @@ router.put('/config', auth, requireAdmin, async (req, res) => {
     }
 });
 
+/**
+ * GET /admin/roi/config
+ * Get ROI configuration
+ */
+router.get('/roi/config', auth, requireAdmin, async (req, res) => {
+    try {
+        const RoiConfig = require('../models/RoiConfig');
+        const config = await RoiConfig.getConfig();
+        res.json({ status: 'success', data: config });
+    } catch (error) {
+        logger.error('Get ROI config error:', error);
+        res.status(500).json({ status: 'error', message: 'Failed to get ROI config' });
+    }
+});
+
+/**
+ * PUT /admin/roi/config
+ * Update ROI configuration
+ */
+router.put('/roi/config', auth, requireSuperAdmin, async (req, res) => {
+    try {
+        const RoiConfig = require('../models/RoiConfig');
+        const updates = req.body;
+        const config = await RoiConfig.findOneAndUpdate(
+            {},
+            { $set: updates, updatedBy: req.user.id },
+            { upsert: true, new: true }
+        );
+        logAdminAction(req.user, 'roi_config_update', `Updated ROI configuration`, 'warning');
+        res.json({ status: 'success', data: config });
+    } catch (error) {
+        logger.error('Update ROI config error:', error);
+        res.status(500).json({ status: 'error', message: 'Failed to update ROI config' });
+    }
+});
+
+/**
+ * GET /admin/withdrawals/analytics
+ * Get dashboard analytics for withdrawals
+ */
+router.get('/withdrawals/analytics', auth, requireAdmin, async (req, res) => {
+    try {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        const withdrawalPipeline = [
+            { $unwind: "$withdrawals" },
+            { $project: {
+                amount: "$withdrawals.amount",
+                status: "$withdrawals.status",
+                createdAt: "$withdrawals.createdAt",
+                userId: "$_id",
+                walletAddress: "$walletAddress"
+            }}
+        ];
+
+        const allWithdrawals = await User.aggregate(withdrawalPipeline);
+        
+        let totalToday = 0;
+        let totalAllTime = 0;
+        let totalAmount = 0;
+        
+        const userTotals = {};
+
+        allWithdrawals.forEach(w => {
+            totalAllTime += w.amount;
+            totalAmount += w.amount;
+            if (new Date(w.createdAt) >= today) {
+                totalToday += w.amount;
+            }
+            if (!userTotals[w.walletAddress]) userTotals[w.walletAddress] = 0;
+            userTotals[w.walletAddress] += w.amount;
+        });
+
+        const topUsers = Object.entries(userTotals)
+            .map(([wallet, amount]) => ({ wallet, amount }))
+            .sort((a, b) => b.amount - a.amount)
+            .slice(0, 5);
+
+        const avgSize = allWithdrawals.length > 0 ? (totalAmount / allWithdrawals.length) : 0;
+
+        // Deposits
+        const depositAgg = await User.aggregate([
+            { $group: { _id: null, total: { $sum: { $ifNull: ['$activation.totalDeposited', 0] } } } }
+        ]);
+        const totalDeposited = depositAgg[0]?.total || 0;
+        const ratio = totalDeposited > 0 ? ((totalAllTime / totalDeposited) * 100).toFixed(1) : 0;
+
+        const SystemConfig = require('../models/SystemConfig');
+        const config = await SystemConfig.getConfig();
+        const globalPause = config.emergencyFlags?.pauseWithdrawals || false;
+
+        res.json({
+            status: 'success',
+            data: {
+                totalToday,
+                totalAllTime,
+                avgSize,
+                topUsers,
+                withdrawalRatio: ratio,
+                globalPause
+            }
+        });
+    } catch (error) {
+        logger.error('Withdrawals analytic error', error);
+        res.status(500).json({ status: 'error', message: 'Failed to fetch analytics' });
+    }
+});
+
+/**
+ * GET /admin/withdrawals/list
+ * Get paginated list of all withdrawals
+ */
+router.get('/withdrawals/list', auth, requireAdmin, async (req, res) => {
+    try {
+        const { page = 1, limit = 50, status, search } = req.query;
+        
+        let matchStage = {};
+        
+        if (search) {
+            matchStage['walletAddress'] = { $regex: search, $options: 'i' };
+        }
+
+        const pipeline = [
+            { $match: matchStage },
+            { $unwind: "$withdrawals" }
+        ];
+
+        if (status && status !== 'All') {
+            pipeline.push({ $match: { "withdrawals.status": status } });
+        }
+
+        const totalResult = await User.aggregate([...pipeline, { $count: "total" }]);
+        const totalCount = totalResult.length > 0 ? totalResult[0].total : 0;
+
+        pipeline.push(
+            { $sort: { "withdrawals.createdAt": -1 } },
+            { $skip: (parseInt(page) - 1) * parseInt(limit) },
+            { $limit: parseInt(limit) },
+            { $project: {
+                userId: "$_id",
+                walletAddress: 1,
+                isWithdrawalFrozen: 1,
+                withdrawal: "$withdrawals"
+            }}
+        );
+
+        const results = await User.aggregate(pipeline);
+        
+        res.json({
+            status: 'success',
+            data: {
+                withdrawals: results.map(r => ({
+                    userId: r.userId,
+                    walletAddress: r.walletAddress,
+                    isFrozen: r.isWithdrawalFrozen || false,
+                    amountRequested: r.withdrawal.amount,
+                    fee: r.withdrawal.amount * 0.10,
+                    netAmount: r.withdrawal.amount * 0.90,
+                    txHash: r.withdrawal.txHash || null,
+                    status: r.withdrawal.status,
+                    createdAt: r.withdrawal.createdAt
+                })),
+                totalPages: Math.ceil(totalCount / parseInt(limit)),
+                currentPage: parseInt(page),
+                totalCount
+            }
+        });
+    } catch (error) {
+        logger.error('Withdrawals list error', error);
+        res.status(500).json({ status: 'error', message: 'Failed to fetch list' });
+    }
+});
+
+/**
+ * POST /admin/withdrawals/freeze
+ * Freeze user account withdrawals
+ */
+router.post('/withdrawals/freeze', auth, requireAdmin, async (req, res) => {
+    try {
+        const { userId, freeze } = req.body;
+        const user = await User.findById(userId);
+        if (!user) return res.status(404).json({ status: 'error', message: 'User not found' });
+        
+        user.isWithdrawalFrozen = freeze;
+        await user.save();
+        
+        logAdminAction(req.user, 'freeze_user', `${freeze ? 'Froze' : 'Unfroze'} withdrawals for ${user.walletAddress}`, 'warning');
+        
+        res.json({ status: 'success', message: `User account ${freeze ? 'frozen' : 'unfrozen'}`, data: { isFrozen: user.isWithdrawalFrozen } });
+    } catch (error) {
+        logger.error('Freeze error', error);
+        res.status(500).json({ status: 'error', message: 'Failed to freeze account' });
+    }
+});
+
+/**
+ * POST /admin/withdrawals/pause
+ * Toggle global withdrawals pause
+ */
+router.post('/withdrawals/pause', auth, requireSuperAdmin, async (req, res) => {
+    try {
+        const { pause } = req.body;
+        const SystemConfig = require('../models/SystemConfig');
+        const config = await SystemConfig.getConfig();
+        
+        if (!config.emergencyFlags) {
+            config.emergencyFlags = {};
+        }
+        
+        config.emergencyFlags.pauseWithdrawals = pause;
+        await config.save();
+        
+        logAdminAction(req.user, 'global_pause', `${pause ? 'Paused' : 'Unpaused'} global withdrawals`, 'critical');
+        
+        res.json({ status: 'success', message: `Global withdrawals ${pause ? 'paused' : 'unpaused'}`, data: { pauseWithdrawals: pause } });
+    } catch (error) {
+        logger.error('Pause error', error);
+        res.status(500).json({ status: 'error', message: 'Failed to toggle global pause' });
+    }
+});
+
 module.exports = router;
+

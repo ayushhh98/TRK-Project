@@ -131,7 +131,7 @@ export function CyberneticTerminal() {
             className="w-full h-full flex flex-col bg-black border border-white/10 rounded-[2.5rem] overflow-hidden relative group font-mono text-sm shadow-2xl transition-all duration-500 hover:border-blue-500/30"
         >
             {/* Background Grain & Scanlines */}
-            <div className="absolute inset-0 z-0 pointer-events-none opacity-[0.03] bg-[url('https://grainy-gradients.vercel.app/noise.svg')]" />
+            <div className="absolute inset-0 z-0 pointer-events-none opacity-[0.03] bg-[url('/noise.svg')]" />
             <div className="absolute inset-0 pointer-events-none z-20 bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.1)_50%),linear-gradient(90deg,rgba(255,0,0,0.02),rgba(0,255,0,0.01),rgba(0,0,255,0.02))] bg-[length:100%_4px,3px_100%] opacity-40 group-hover:opacity-60 transition-opacity" />
 
             {/* Subtle Screen Flicker Effect */}

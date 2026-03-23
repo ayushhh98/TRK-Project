@@ -168,7 +168,7 @@ export function LiveWinnerFeed({
         return (
             <div className={cn("relative overflow-hidden bg-black border-y border-white/10 py-4 font-mono", className)}>
                 {/* Background Effects */}
-                <div className="absolute inset-0 z-0 pointer-events-none opacity-[0.05] bg-[url('https://grainy-gradients.vercel.app/noise.svg')]" />
+                <div className="absolute inset-0 z-0 pointer-events-none opacity-[0.05] bg-[url('/noise.svg')]" />
                 <div className="absolute inset-0 pointer-events-none z-20 bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.1)_50%),linear-gradient(90deg,rgba(255,215,0,0.02),rgba(0,255,255,0.01),rgba(255,165,0,0.02))] bg-[length:100%_4px,3px_100%] opacity-40 transition-opacity" />
                 <div className="absolute inset-0 pointer-events-none z-20 bg-amber-500/[0.01] animate-pulse" />
 

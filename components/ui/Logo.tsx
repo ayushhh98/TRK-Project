@@ -8,6 +8,16 @@ interface LogoProps extends HTMLMotionProps<"div"> {
 }
 
 export function Logo({ className, withText = false, ...props }: LogoProps) {
+    const [mounted, setMounted] = React.useState(false);
+
+    React.useEffect(() => {
+        setMounted(true);
+    }, []);
+
+    if (!mounted) {
+        return <div className={cn("flex items-center gap-2 invisible", className)} />;
+    }
+
     return (
         <motion.div
             className={cn("flex items-center gap-2", className)}

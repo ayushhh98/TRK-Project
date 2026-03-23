@@ -187,8 +187,10 @@ export default function Home() {
   const { isConnected, user, connect, login, isRegisteredOnChain } = useWallet();
   const router = useRouter();
   const [openFAQ, setOpenFAQ] = useState<number | null>(null);
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
+    setMounted(true);
     if (typeof window === "undefined") return;
     const lockHome = sessionStorage.getItem("trk_home_override");
     if (lockHome === "1") {
@@ -206,6 +208,10 @@ export default function Home() {
     hidden: { opacity: 0, y: 30 },
     visible: { opacity: 1, y: 0, transition: { duration: 0.5 } },
   };
+
+  if (!mounted) {
+    return <div className="min-h-screen bg-black" />;
+  }
 
   return (
     <div className="min-h-screen flex flex-col bg-black selection:bg-primary/20">
@@ -663,7 +669,7 @@ export default function Home() {
         {/* Security Background FX */}
         <div className="absolute inset-0 pointer-events-none">
           <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-green-500/5 rounded-full blur-[120px]" />
-          <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20 brightness-100 contrast-150" />
+          <div className="absolute inset-0 bg-[url('/noise.svg')] opacity-20 brightness-100 contrast-150" />
         </div>
 
         <div className="container mx-auto px-4 relative z-10">

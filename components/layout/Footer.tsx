@@ -42,7 +42,17 @@ const socialLinks = [
     { icon: Github, href: "#", color: "hover:text-white" },
 ];
 
+import { useState, useEffect } from "react";
+
 export function Footer() {
+    const [mounted, setMounted] = useState(false);
+
+    useEffect(() => {
+        setMounted(true);
+    }, []);
+
+    if (!mounted) return <footer className="bg-black h-20" />;
+
     return (
         <footer className="bg-black border-t border-white/5 pt-12 pb-6 overflow-hidden relative">
             {/* Background Accent */}

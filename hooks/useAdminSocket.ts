@@ -15,6 +15,7 @@ type AdminEventHandlers = {
     onTeamUpdate?: (data: any) => void;
     onTeamLiveActivity?: (data: any) => void;
     onEconomicsUpdate?: (data: any) => void;
+    onEconomyLog?: (data: any) => void;
     onROIUpdate?: (data: any) => void;
     onGamesUpdate?: (data: any) => void;
     onAuditUpdate?: (data: any) => void;
@@ -78,6 +79,7 @@ export function useAdminSocket(handlers: AdminEventHandlers = {}) {
         const handleTeamUpdate = (data: any) => handlersRef.current.onTeamUpdate?.(data);
         const handleTeamLiveActivity = (data: any) => handlersRef.current.onTeamLiveActivity?.(data);
         const handleEconomicsUpdate = (data: any) => handlersRef.current.onEconomicsUpdate?.(data);
+        const handleEconomyLog = (data: any) => handlersRef.current.onEconomyLog?.(data);
         const handleROIUpdate = (data: any) => handlersRef.current.onROIUpdate?.(data);
         const handleGamesUpdate = (data: any) => handlersRef.current.onGamesUpdate?.(data);
         const handleAuditUpdate = (data: any) => handlersRef.current.onAuditUpdate?.(data);
@@ -114,6 +116,7 @@ export function useAdminSocket(handlers: AdminEventHandlers = {}) {
         socket.on('admin:team_stats_update', handleTeamUpdate);
         socket.on('admin:team_live_activity', handleTeamLiveActivity);
         socket.on('admin:economics_update', handleEconomicsUpdate);
+        socket.on('admin:economy_log', handleEconomyLog);
         socket.on('admin:roi_update', handleROIUpdate);
         socket.on('admin:games_update', handleGamesUpdate);
         socket.on('admin:audit_stats_update', handleAuditUpdate);
@@ -153,6 +156,7 @@ export function useAdminSocket(handlers: AdminEventHandlers = {}) {
             socket.off('admin:team_stats_update', handleTeamUpdate);
             socket.off('admin:team_live_activity', handleTeamLiveActivity);
             socket.off('admin:economics_update', handleEconomicsUpdate);
+            socket.off('admin:economy_log', handleEconomyLog);
             socket.off('admin:roi_update', handleROIUpdate);
             socket.off('admin:games_update', handleGamesUpdate);
             socket.off('admin:audit_stats_update', handleAuditUpdate);
